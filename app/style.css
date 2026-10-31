@@ -94,6 +94,13 @@ input,select{font:inherit;font-size:16px;color:var(--ink);background:var(--surfa
 .chip.c-p0{--c:var(--p0)} .chip.c-p1{--c:var(--p1)} .chip.c-sh{--c:var(--sh)} .chip.c-cx{--c:var(--cx)}
 .chip[aria-pressed="true"]{border-color:var(--c);color:var(--c);background:color-mix(in srgb,var(--c) 12%,transparent)}
 .owe{margin-left:auto;font-size:.8rem;color:var(--muted)}
+.item.flag{border-color:var(--warn);box-shadow:0 0 0 1px var(--warn) inset}
+.warns:empty{display:none}
+.warn-line{font-size:.8rem;color:var(--warn)}
+.warn-line.info{color:var(--muted)}
+.hints{margin:8px 0 4px;padding-left:18px;display:grid;gap:4px}
+.notice.ok{color:var(--sh)}
+.tag.warn{color:var(--warn);border-color:var(--warn)}
 .dup{font-size:.75rem;font-weight:700;color:var(--warn);border:1px solid currentColor;border-radius:999px;padding:2px 8px}
 .groups{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:.85rem}
 .bar{position:fixed;left:0;right:0;bottom:0;background:var(--surface);border-top:1px solid var(--line);padding-top:12px;padding-bottom:calc(12px + env(safe-area-inset-bottom, 0px));padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px));z-index:5}

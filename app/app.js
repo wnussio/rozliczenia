@@ -2,6 +2,7 @@
 // dane w pamięci przeglądarki (localStorage), paragony czyta OCR w telefonie (Tesseract.js),
 // między telefonami dane przenosi się plikiem (opcjonalnie zaszyfrowanym hasłem).
 import { parseReceipt } from "./parser.js";
+import { checkTypicalPrice } from "./prices.js";
 import { readReceipt, setProgress, terminate, workerReady, ocrState } from "./ocr.js";
 let scanToken = 0;
 
@@ -139,7 +140,7 @@ function renderHome() {
       html += `<div class="card${r.settled ? " done" : ""}${sel ? " sel" : ""}" data-id="${esc(r.id)}" role="button" tabindex="0">
         ${selecting ? `<span class="tick" aria-hidden="true">${sel ? "✓" : ""}</span>` : ""}
         <div class="card-body">
-          <div class="card-top"><strong>${esc(r.store || "Zakupy")}${r.group && groupBy !== "group" ? `<span class="tag">${esc(r.group)}</span>` : ""}</strong><span class="num">${fmt(rTotal(r))}</span></div>
+          <div class="card-top"><strong>${esc(r.store || "Zakupy")}${r.group && groupBy !== "group" ? `<span class="tag">${esc(r.group)}</span>` : ""}${r.scannedTotal != null && r.scannedTotal !== rTotal(r) ? `<span class="tag warn" title="Suma pozycji nie zgadza się z SUMA PLN z paragonu">⚠ suma</span>` : ""}</strong><span class="num">${fmt(rTotal(r))}</span></div>
           <div class="card-sub"><span>${esc(fmtDate(r.date))} · płacił(a) <span class="who who-${r.payer}">${esc(P(r.payer))}</span></span>
           <span>${r.settled ? "rozliczone ✓" : o ? `<span class="who who-${other}">${esc(P(other))}</span> oddaje <span class="num">${fmt(o)}</span>` : "nic do oddania"}</span></div>
         </div></div>`;
@@ -258,6 +259,7 @@ function openEditor(r) {
   draft = r ? structuredClone(r) : { id: null, payer: 0, store: "", date: today(), group: "", items: [], scannedTotal: null, settled: false };
   draft.items = draft.items || [];
   draft.defOpt = "shared";
+  draft.history = priceHistory();
   $("#ed-store").value = draft.store || ""; $("#ed-date").value = draft.date || today();
   $("#ed-group").value = draft.group || ""; $("#ed-settled").checked = !!draft.settled;
   $("#ed-del-wrap").hidden = !draft.id; disarm($("#btn-del"));
@@ -270,13 +272,14 @@ function renderEditor() {
   $("#payer").innerHTML = [0, 1].map((i) => `<button type="button" class="p${i}" data-payer="${i}" aria-pressed="${draft.payer === i}">${esc(P(i))}</button>`).join("");
   $("#bulk").innerHTML = chipsHtml(null, "data-bulk");
   $("#items").innerHTML = draft.items.map((it, i) => `
-    <div class="item" data-i="${i}">
+    <div class="item" data-i="${i}" id="item-${i}">
       <div class="item-top">
         <input class="it-name" id="it-name-${i}" value="${esc(it.name)}" placeholder="Nazwa" aria-label="Nazwa pozycji">
         <input class="it-price" id="it-price-${i}" value="${it.g ? fmtIn(it.g) : ""}" inputmode="decimal" placeholder="0,00" aria-label="Cena">
         <button type="button" class="x" data-delitem aria-label="Usuń pozycję">×</button>
       </div>
       <div class="chips">${chipsHtml(it.opt, "data-opt")}${isDuplicate(it, i, draft.items) ? `<span class="dup" title="Taka sama nazwa i cena jak inna pozycja">2× – sprawdź</span>` : ""}<span class="owe num" id="owe-${i}"></span></div>
+      <div class="warns" id="warn-${i}"></div>
     </div>`).join("");
   renderTotals();
 }
@@ -289,11 +292,102 @@ function renderTotals() {
   const groups = new Map();
   for (const it of draft.items) { if (!it.g) continue; const o = optById(it.opt); groups.set(o, (groups.get(o) || 0) + it.g); }
   $("#groups").innerHTML = [...groups].map(([o, g]) => `<span><b style="color:var(--${optClass(o).slice(2)})">${esc(optLabel(o))}</b> <span class="num">${fmt(g)}</span></span>`).join("");
-  if (draft.scannedTotal != null && draft.scannedTotal !== total)
-    $("#ed-check").innerHTML = `<div class="notice warn">SUMA PLN na paragonie: <span class="num">${fmt(draft.scannedTotal)}</span>, a pozycje dają <span class="num">${fmt(total)}</span>. Różnica <span class="num">${fmt(Math.abs(draft.scannedTotal - total))}</span>: sprawdź ceny albo dodaj brakującą pozycję.</div>`;
-  else if (draft.scannedTotal != null) $("#ed-check").innerHTML = `<div class="notice">Zgadza się z SUMA PLN na paragonie ✓</div>`;
+  // sprawdzanie każdej pozycji
+  draft.hints = [];
+  const flagged = new Set();
+  draft.items.forEach((it, i) => {
+    const el = $("#warn-" + i); if (!el) return;
+    el.innerHTML = itemChecks(it, draft.scannedTotal != null ? draft.scannedTotal - total : null).map((c) => {
+      if (c.fix) { draft.hints.push({ i, act: "calc" }); flagged.add(i); }
+      if (c.warn) flagged.add(i);
+      return `<div class="warn-line${c.fix || c.warn ? "" : " info"}">${c.fix || c.warn ? "⚠" : "ℹ"} ${esc(c.text)}${c.fix ? ` <button type="button" class="link" data-hint="${draft.hints.length - 1}">${esc(c.label)}</button>` : ""}</div>`;
+    }).join("");
+  });
+  // zgodność z SUMA PLN i podpowiedź, która pozycja może być błędna
+  if (draft.scannedTotal != null && draft.scannedTotal !== total) {
+    const diff = draft.scannedTotal - total; // > 0: brakuje, < 0: za dużo
+    const hints = [];
+    const hint = (i, act, text, label) => {
+      draft.hints.push({ i, act, amount: diff }); flagged.add(i);
+      hints.push(`<li>${esc(text)} <button type="button" class="link" data-hint="${draft.hints.length - 1}">${esc(label)}</button></li>`);
+    };
+    draft.items.forEach((it, i) => {
+      const nm = it.name || "Pozycja";
+      if (it.calc && it.calc - basePrice(it) === diff) hint(i, "calc", `${nm}: odczytano ${fmt(basePrice(it))}, a ilość × cena = ${fmt(it.calc)}`, `Użyj ${fmt(it.calc)}`);
+      else if (it.g >= 100 && Math.round(it.g / 10) - it.g === diff) hint(i, "div10", `${nm}: ${fmt(it.g)} to chyba ${fmt(Math.round(it.g / 10))} (przecinek w złym miejscu)`, "Popraw");
+      else if (it.g * 10 - it.g === diff) hint(i, "mul10", `${nm}: ${fmt(it.g)} to chyba ${fmt(it.g * 10)} (przecinek w złym miejscu)`, "Popraw");
+      else if (-diff === it.g && isDuplicate(it, i, draft.items)) hint(i, "del", `${nm} (${fmt(it.g)}) mogła się zdublować`, "Usuń");
+    });
+    if (!hints.length && diff < 0) draft.items.forEach((it, i) => { if (it.g === -diff && hints.length < 3) hint(i, "del", `Czy „${it.name}” (${fmt(it.g)}) na pewno jest na paragonie?`, "Usuń"); });
+    if (!hints.length && diff > 0) {
+      draft.hints.push({ act: "add", amount: diff });
+      hints.push(`<li>Brakuje ${fmt(diff)}: może nie odczytała się jakaś linia albo rabat. <button type="button" class="link" data-hint="${draft.hints.length - 1}">Dodaj pozycję ${fmt(diff)}</button></li>`);
+    }
+    $("#ed-check").innerHTML = `<div class="notice warn">⚠ Nie zgadza się z paragonem: SUMA PLN <span class="num">${fmt(draft.scannedTotal)}</span>, pozycje <span class="num">${fmt(total)}</span> (różnica <span class="num">${fmt(Math.abs(diff))}</span>).`
+      + (hints.length ? `<ul class="hints">${hints.join("")}</ul>` : " Sprawdź pozycje oznaczone na pomarańczowo.")
+      + `<div class="row-btns" id="fix-total-box"><button type="button" class="link" data-hint-total>SUMA PLN źle odczytana? Popraw ją</button></div></div>`;
+  } else if (draft.scannedTotal != null) $("#ed-check").innerHTML = `<div class="notice ok">✓ Zgadza się z SUMA PLN na paragonie (${fmt(total)})</div>`;
   else $("#ed-check").innerHTML = "";
+  draft.items.forEach((_, i) => $("#item-" + i)?.classList.toggle("flag", flagged.has(i)));
 }
+// Kontrola pojedynczej pozycji: ilość × cena z tej samej linii i ceny z poprzednich paragonów.
+function itemChecks(it, diff = null) {
+  const out = [];
+  if (it.fixed && it.calc) out.push({ text: `Poprawiono przecinek: odczytano ${fmt(it.fixed)}, a ilość × cena = ${fmt(it.calc)}` });
+  else if (it.calc && Math.abs(it.calc - basePrice(it)) > 1) {
+    // Która liczba jest zła: kwota czy cena jednostkowa? Jeśli cena za kg/szt. jest nietypowa, a wyliczona z kwoty
+    // wygląda normalnie – źle odczytała się cena jednostkowa, a kwota jest dobra.
+    const fromValue = { name: it.name, g: basePrice(it), qty: it.qty, unit: Math.round(basePrice(it) / (it.qty || 1)) };
+    if (it.qty && checkTypicalPrice(it) && !checkTypicalPrice(fromValue))
+      out.push({ text: `Cena jednostkowa odczytana jako ${fmt(it.unit)}, ale z kwoty wychodzi ${fmt(fromValue.unit)}${it.qty % 1 ? "/kg" : ""} – kwota wygląda dobrze` });
+    else if (diff != null && Math.abs(diff - (it.calc - basePrice(it))) >= Math.abs(diff))
+      // poprawka oddaliłaby sumę od SUMA PLN – kwota jest raczej dobra, a źle odczytała się ilość albo cena jednostkowa
+      out.push({ text: `Ilość × cena daje ${fmt(it.calc)}, ale suma z paragonu wskazuje, że kwota ${fmt(basePrice(it))} jest dobra` });
+    else out.push({ text: `Odczytano ${fmt(basePrice(it))}, a ilość × cena = ${fmt(it.calc)}`, fix: true, label: `Użyj ${fmt(it.calc)}` });
+  }
+  // 1) Twoja historia: najniższa–najwyższa cena tego produktu z zapisanych paragonów
+  const h = draft.history?.get(normName(it.name)), price = unitPrice(it);
+  if (h && price > 0) {
+    if (price > h.max * 2.5 || price * 2.5 < h.min)
+      out.push({ text: `Wcześniej płaciłeś za to ${h.min === h.max ? fmt(h.min) : `${fmt(h.min)}–${fmt(h.max)}`}${it.qty % 1 ? " za kg" : ""} (${h.n}× w historii), tu ${fmt(price)} – sprawdź`, warn: true });
+    return out; // historia jest pewniejsza niż ogólna tabela
+  }
+  // 2) tabela typowych cen + reguła ogólna dla nieznanych produktów (cena jednostkowa źle odczytana – już opisane wyżej)
+  const t = out.length ? null : checkTypicalPrice(it);
+  if (t) out.push({ text: t, warn: true });
+  return out;
+}
+const unitPrice = (it) => (it.unit && it.qty ? it.unit : it.g); // cena za kg / sztukę, jeśli znana
+function priceHistory() { // nazwa produktu → { min, max, n } z zapisanych paragonów (własna baza cen)
+  const m = new Map();
+  for (const e of entries()) {
+    if (e.quick) continue;
+    for (const it of e.items || []) {
+      const k = normName(it.name), p = unitPrice(it);
+      if (k.length < 4 || !(p > 0)) continue;
+      const h = m.get(k) || { min: p, max: p, n: 0 };
+      h.min = Math.min(h.min, p); h.max = Math.max(h.max, p); h.n++;
+      m.set(k, h);
+    }
+  }
+  return m;
+}
+$("#ed-check").onclick = (e) => {
+  if (e.target.closest("[data-hint-total]")) {
+    $("#fix-total-box").innerHTML = `<input id="fix-total" inputmode="decimal" class="num" value="${fmtIn(draft.scannedTotal)}" aria-label="SUMA PLN" style="max-width:130px"> <button type="button" class="btn small" id="fix-total-ok">Zapisz sumę</button>`;
+    $("#fix-total-ok").onclick = () => { draft.scannedTotal = parseMoney($("#fix-total").value) || null; renderEditor(); };
+    return;
+  }
+  const b = e.target.closest("[data-hint]"); if (!b) return;
+  const h = draft.hints[+b.dataset.hint]; if (!h) return;
+  const it = draft.items[h.i];
+  if (h.act === "calc") { it.g += it.calc - basePrice(it); it.base = it.calc; }
+  else if (h.act === "div10") { it.g = Math.round(it.g / 10); it.base = it.g; delete it.calc; }
+  else if (h.act === "mul10") { it.g = it.g * 10; it.base = it.g; delete it.calc; }
+  else if (h.act === "del") draft.items.splice(h.i, 1);
+  else if (h.act === "add") draft.items.push({ name: "Brakująca pozycja", g: h.amount, opt: draft.defOpt || "shared" });
+  renderEditor();
+};
 $("#payer").onclick = (e) => { const b = e.target.closest("[data-payer]"); if (!b) return; draft.payer = +b.dataset.payer; renderEditor(); };
 $("#bulk").onclick = (e) => { const b = e.target.closest("[data-bulk]"); if (!b) return; draft.defOpt = b.dataset.bulk; draft.items.forEach((it) => { it.opt = b.dataset.bulk; }); renderEditor(); };
 $("#items").onclick = (e) => {
@@ -305,12 +399,12 @@ $("#items").onclick = (e) => {
 $("#items").oninput = (e) => {
   const row = e.target.closest(".item"); if (!row) return; const it = draft.items[+row.dataset.i];
   if (e.target.classList.contains("it-name")) it.name = e.target.value;
-  else if (e.target.classList.contains("it-price")) { it.g = parseMoney(e.target.value); renderTotals(); }
+  else if (e.target.classList.contains("it-price")) { it.g = parseMoney(e.target.value); it.base = it.g; delete it.calc; delete it.fixed; delete it.unit; delete it.qty; renderTotals(); }
 };
 $("#btn-add-item").onclick = () => { draft.items.push({ name: "", g: 0, opt: draft.defOpt || "shared" }); renderEditor(); $("#it-name-" + (draft.items.length - 1))?.focus(); };
 $("#btn-cancel").onclick = () => { stopScan(); draft = null; goHome(); };
 $("#btn-save").onclick = () => {
-  const items = draft.items.filter((it) => it.g).map((it) => ({ name: (it.name || "").trim() || "Pozycja", g: it.g, opt: it.opt }));
+  const items = draft.items.filter((it) => it.g).map((it) => ({ name: (it.name || "").trim() || "Pozycja", g: it.g, opt: it.opt, ...(it.unit && it.qty ? { qty: it.qty, unit: it.unit } : {}) }));
   if (!items.length) { $("#ed-check").innerHTML = `<div class="notice bad">Dodaj przynajmniej jedną pozycję z ceną.</div>`; return; }
   // ten sam paragon zapisany już wcześniej (ta sama data i kwota)?
   const date = $("#ed-date").value || today(), total = items.reduce((s, it) => s + it.g, 0), store = $("#ed-store").value.trim();
@@ -404,7 +498,7 @@ function applyParsed(text, replaceLast = false) {
   draft.items = draft.items.filter((it) => it.scan || it.g || it.name); // bez pustych wierszy
   if (!res.items.length) { $("#scan-status").textContent = "Nie rozpoznałem pozycji. Zrób zdjęcie z bliska, płasko, w dobrym świetle albo popraw odczytany tekst poniżej."; renderEditor(); return; }
   const part = newId();
-  const parsed = res.items.map((x) => ({ name: x.name, g: x.g, base: x.base, opt: draft.defOpt || "shared", scan: part }));
+  const parsed = res.items.map((x) => ({ name: x.name, g: x.g, base: x.base, calc: x.calc, fixed: x.fixed, qty: x.qty, unit: x.unit, opt: draft.defOpt || "shared", scan: part }));
   const m = mergeScan(draft.items, parsed, res.lead);
   draft.items = m.items;
   const k = m.skipped, added = m.added;

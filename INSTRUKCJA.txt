@@ -40,6 +40,22 @@ CODZIENNE UŻYCIE
     i wkleić go. Często jest dokładniejsze.
   - Aplikacja porówna pozycje z „SUMA PLN” i pokaże, jeśli coś się nie zgadza.
   - Przy każdej pozycji wybierz: Wspólne / osoba / własny podział.
+  - Kilka zdjęć / zrzutów jednego paragonu: skanuj po kolei w tym samym
+    paragonie – powtórzone pozycje z części wspólnej zostaną pominięte.
+
+Kontrola błędów odczytu (pozycje z problemem mają pomarańczową ramkę)
+  - ⚠ kwota ≠ ilość × cena z tej samej linii → przycisk „Użyj …” poprawia.
+  - ⚠ nietypowa cena, np. pomidory za 89 zł/kg – porównanie z tabelą
+    typowych cen (ok. 130 grup produktów) i z Twoją historią: każdy zapisany
+    paragon uczy aplikację, ile zwykle płacisz za dany produkt.
+  - ⚠ suma pozycji ≠ SUMA PLN → aplikacja wskazuje pozycję, która tłumaczy
+    różnicę (zła cena, przesunięty przecinek, zdublowana linia) i poprawia
+    jednym stuknięciem. Gdy źle odczytała się sama SUMA PLN – „Popraw ją”.
+  - ℹ informacje bez przycisku: aplikacja uważa, że kwota jest dobra.
+  - „2× – sprawdź”: dwie identyczne pozycje (mogą być prawdziwe).
+  - Na liście paragonów znaczek „⚠ suma” = zapisany paragon nie zgadzał się
+    z SUMA PLN.
+
 + Kwota
   - Wydatek bez paragonu (rachunek, pizza, bilety).
 

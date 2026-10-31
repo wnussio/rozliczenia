@@ -42,7 +42,7 @@ function normalize(line) {
   }
   // litera stawki VAT odczytana jako cyfra na końcu linii: „2,744” → „2,74 A”, „7,998” → „7,99 B”
   l = l.replace(/(\d[.,]\d{2})([4805])\W{0,2}$/, (m, a, d) => `${a} ${{ 4: "A", 8: "B", 0: "C", 5: "C" }[d]}`);
-  l = l.replace(/(\d)([.,])\s(\d{2})(?![\d%])/g, "$1$2$3");
+  l = l.replace(/(\d)([.,])\s(\d{2})(?![\d%-])/g, "$1$2$3"); // „3, 00” → „3,00”, ale nie „122, 63-700” (adres)
   l = l.replace(/(\d)\s([.,])(\d{2})(?![\d%])/g, "$1$2$3"); // „210 ,97” (duża czcionka sumy)
   l = l.replace(/(^|\s)-\s(\d)/g, "$1-$2");
   return l;
@@ -94,6 +94,7 @@ export function parseReceipt(raw) {
   for (let i = start + 1; i < lines.length; i++) {
     let l = lines[i];
     if (DATE_RE.test(l) && letterCount(l) < 4) continue; // linia z datą i godziną
+    if (/\b\d{2}-\d{3}\b|\b(ul|al|os|pl)\.\s|\bNIP\b|\bBDO\b|\bREGON\b/i.test(l)) continue; // adres, NIP, kod pocztowy
     if (/\b20\d{2}\b/.test(l) && MONTHS.test(l) && !/\d[.,]\d{2}/.test(l)) continue; // nagłówek aplikacji sklepu: „19 Października 2026”
     const amounts = [...l.matchAll(AMOUNT)];
     const isDiscount = DISCOUNT.test(l);
@@ -135,12 +136,17 @@ export function parseReceipt(raw) {
 
     // Ilość × cena bez wartości na końcu (OCR zgubił albo ucięta) – policz.
     const qm = q >= 0 ? l.slice(q).match(/(\d+(?:[.,]\d+)?)\s*(?:szt\.?|kg|op\.?|l)?\s*[x×*][:.]?\s*(\d{1,5}[.,]\d{2})(?!\d)/i) : null;
-    let alt = null; // ilość × cena – do sprawdzenia krzyżowego z kwotą
+    let alt = null, calc = null, fixed = null; // ilość × cena – do sprawdzenia krzyżowego z kwotą
     if (qm) {
-      const calc = Math.round(parseFloat(qm[1].replace(",", ".")) * toGr(qm[2]));
+      calc = Math.round(parseFloat(qm[1].replace(",", ".")) * toGr(qm[2]));
       const unitIsLast = amounts.length === 1 || amounts[amounts.length - 1].index <= l.indexOf(qm[2], q) + 1;
       if (unitIsLast) value = calc; // brak kwoty na końcu (OCR zgubił)
-      else if (calc !== value) alt = calc;
+      else if (calc && calc !== value) {
+        const r = value / calc;
+        // przecinek w złym miejscu (×10, ×100, ÷10): ilość × cena jest wiarygodniejsza
+        if ([10, 100, 0.1, 0.01].some((k) => Math.abs(r - k) / k < 0.02)) { fixed = value; value = calc; }
+        else alt = calc;
+      }
     }
     if (!value) { flushCont(); continue; }
 
@@ -150,6 +156,8 @@ export function parseReceipt(raw) {
     name = cleanName(name || "");
     const item = { name: letterCount(name) >= 2 ? name : "Pozycja (sprawdź nazwę)", g: value, base: value };
     if (alt) item.alt = alt - value;
+    if (calc) { item.calc = calc; item.qty = parseFloat(qm[1].replace(",", ".")); item.unit = toGr(qm[2]); }
+    if (fixed) item.fixed = fixed;
     items.push(item);
     contTarget = nameLetters >= 3 ? item : null;
   }
