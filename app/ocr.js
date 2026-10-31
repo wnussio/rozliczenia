@@ -194,6 +194,52 @@ export async function readReceipt(file, isCancelled = () => false) {
   } catch (e) { console.warn("PaddleOCR niedostępny, używam Tesseract:", e); }
   return readTesseract(file, isCancelled);
 }
+// Kilka zdjęć jednego paragonu. Najpierw zwykły odczyt wszystkich, potem ocena całości (score: połączone pozycje
+// kontra SUMA PLN z któregokolwiek zdjęcia). Ponowne odczyty (ostrzej) tylko gdy suma się nie zgadza – i każdy
+// zostaje tylko wtedy, gdy poprawia zgodność całego paragonu.
+// rereadWithoutTotal: czy czytać ponownie, gdy na żadnym zdjęciu nie ma SUMA PLN (dla pojedynczego zdjęcia jak dotąd).
+export async function readReceipts(files, { isCancelled = () => false, score, rereadWithoutTotal = false, onStage = () => {} } = {}) {
+  const reads = [];
+  for (let i = 0; i < files.length; i++) {
+    onStage({ phase: "read", i });
+    try {
+      const r = await firstRead(files[i], isCancelled);
+      if (!r) return null;
+      reads.push(r);
+    } catch (e) {
+      if (isCancelled()) return null;
+      reads.push({ text: "", error: e });
+    }
+  }
+  const texts = reads.map((r) => r.text || "");
+  let best = score(texts), tries = files.length;
+  if (best !== 0 && (best < 1e6 || rereadWithoutTotal)) {
+    for (let i = 0; i < files.length && best !== 0; i++) {
+      if (reads[i].engine !== "paddle" || !texts[i].trim()) continue;
+      for (const v of REREAD) {
+        if (best === 0) break;
+        onStage({ phase: "reread", i });
+        const r2 = await paddleReread(files[i], reads[i].angle, v, isCancelled);
+        if (!r2 || isCancelled()) return null;
+        tries++;
+        const cand = texts.slice(); cand[i] = r2.text;
+        const sc = score(cand);
+        if (sc < best) { best = sc; texts[i] = r2.text; }
+      }
+    }
+  }
+  ocrState.attempt = "";
+  return { texts, errors: reads.map((r) => r.error || null), tries, score: best };
+}
+async function firstRead(file, isCancelled) {
+  try {
+    const r = await paddleRead(file, isCancelled);
+    if (!r) return null;
+    if (r.text.trim()) return { text: r.text, angle: r.angle, engine: "paddle" };
+  } catch (e) { if (isCancelled()) return null; console.warn("PaddleOCR niedostępny, używam Tesseract:", e); }
+  const t = await readTesseract(file, isCancelled);
+  return t && { text: t.text, angle: t.angle, engine: "tesseract" };
+}
 async function readTesseract(file, isCancelled) {
   const p = await prepImage(file);
   const w = await getWorker();

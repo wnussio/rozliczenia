@@ -21,6 +21,17 @@ self.addEventListener("message", (event) => {
   if (event.data === "aktualizuj") self.skipWaiting();
 });
 
+// GitHub Pages nie pozwala ustawić nagłówków, więc dokładamy je tutaj: COOP/COEP → strona „cross-origin isolated”
+// → OCR może liczyć na kilku wątkach (ten sam wynik, szybciej). Wszystkie pliki aplikacji są z tej samej domeny.
+function isolated(res) {
+  if (!res || res.type === "opaque" || res.type === "opaqueredirect" || !res.status) return res;
+  const h = new Headers(res.headers);
+  h.set("Cross-Origin-Opener-Policy", "same-origin");
+  h.set("Cross-Origin-Embedder-Policy", "require-corp");
+  h.set("Cross-Origin-Resource-Policy", "same-origin");
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
+}
+
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;
@@ -30,10 +41,10 @@ self.addEventListener("fetch", (event) => {
   if (url.pathname.includes("/vendor/") || url.pathname.includes("/models/")) {
     event.respondWith(caches.open(VENDOR).then(async (cache) => {
       const hit = await cache.match(req, { ignoreSearch: true });
-      if (hit) return hit;
+      if (hit) return isolated(hit);
       const res = await fetch(req);
       if (res.ok) cache.put(req, res.clone());
-      return res;
+      return isolated(res);
     }));
     return;
   }
@@ -41,6 +52,6 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(caches.open(CACHE).then(async (cache) => {
     const hit = await cache.match(req, { ignoreSearch: true })
       || (req.mode === "navigate" ? await cache.match("./") : undefined);
-    return hit || fetch(req);
+    return isolated(hit || await fetch(req));
   }));
 });

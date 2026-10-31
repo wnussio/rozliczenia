@@ -5,7 +5,7 @@ import { parseReceipt } from "./parser.js";
 import { checkTypicalPrice } from "./prices.js";
 import { foodEmoji, emojisFor, rain, burst, setAnimations, ambient, watchScroll } from "./fx.js";
 import { mascot, homeLine } from "./mascot.js";
-import { readReceipt, setProgress, terminate, workerReady, ocrState } from "./ocr.js";
+import { readReceipts, setProgress, terminate, workerReady, ocrState } from "./ocr.js";
 let scanToken = 0;
 
 /* ---------- pomocnicze ---------- */
@@ -597,12 +597,26 @@ function stopScan() {
   if (workerReady() && !$("#btn-scan-stop").hidden) terminate();
   $("#btn-scan").disabled = $("#btn-gallery").disabled = false; $("#btn-scan-stop").hidden = true;
 }
-// Jedno lub kilka zdjęć tego samego paragonu: czytane po kolei i łączone (mergeScan pomija powtórzenia).
+// Jak bardzo połączone pozycje (dotychczasowe + z tych tekstów) rozmijają się z SUMA PLN z któregokolwiek zdjęcia.
+// 0 = zgodne; bez sumy: 1e6 − liczba pozycji (jak scoreParse dla jednego zdjęcia).
+function scoreTexts(texts) {
+  let items = draft.items.filter((it) => it.scan).map((it) => ({ ...it })), total = draft.scannedTotal ?? null;
+  for (const t of texts) {
+    if (!t.trim()) continue;
+    const res = parseReceipt(t);
+    items = mergeScan(items, res.items.map((x) => ({ name: x.name, g: x.g, base: x.base, scan: 1 })), res.lead).items;
+    if (res.total != null) total = res.total;
+  }
+  if (total == null) return items.length ? 1e6 - items.length : 1e9;
+  return Math.abs(total - items.reduce((s, it) => s + (it.g || 0), 0));
+}
+// Jedno lub kilka zdjęć tego samego paragonu: najpierw odczyt wszystkich, potem ponowne odczyty pod SUMA PLN
+// (z dowolnego zdjęcia), na końcu łączenie pozycji (mergeScan pomija powtórzenia).
 async function scan(files) {
   files = [].concat(files);
   if (files.length > 1) // kolejność jak przy robieniu zdjęć/zrzutów (od góry paragonu); galeria potrafi je przemieszać
     files.sort((a, b) => (a.lastModified || 0) - (b.lastModified || 0) || a.name.localeCompare(b.name, undefined, { numeric: true }));
-  const token = ++scanToken, many = files.length > 1;
+  const token = ++scanToken, many = files.length > 1, of = many ? ` z ${files.length}` : "";
   let pre = "";
   const status = (t) => { $("#scan-status").textContent = pre + t; };
   $("#btn-scan").disabled = $("#btn-gallery").disabled = true; $("#btn-scan-stop").hidden = false;
@@ -616,30 +630,36 @@ async function scan(files) {
       ? `Czytam paragon${a && a !== "1" ? ` (próba ${a}: szukam odczytu zgodnego z sumą)` : ""}…${p}`
       : `Przygotowuję odczyt (pierwszy raz trwa dłużej)…${p}`);
   });
-  let added = 0, skipped = 0, total = false;
-  const failed = [];
+  status("Przygotowuję zdjęcie…");
   try {
-    for (let n = 0; n < files.length; n++) {
-      pre = many ? `Zdjęcie ${n + 1} z ${files.length}: ` : "";
-      status("Przygotowuję zdjęcie (kadrowanie, prostowanie)…");
-      try {
-        const res = await readReceipt(files[n], () => token !== scanToken || !draft);
-        if (!res || token !== scanToken || !draft) return;
-        const r = applyParsed(res.text);
-        if (r) { added += r.added; skipped += r.skipped; total ||= r.total; } else failed.push(n + 1);
-      } catch (err) {
-        if (token !== scanToken) return;
-        if (!many) { status("Nie udało się odczytać zdjęcia (" + (err?.message || err) + "). Spróbuj ponownie albo wpisz pozycje ręcznie."); return; }
-        failed.push(n + 1);
-      }
-    }
+    const out = await readReceipts(files, {
+      isCancelled: () => token !== scanToken || !draft,
+      score: scoreTexts,
+      rereadWithoutTotal: !many && !draft.items.some((it) => it.scan),
+      onStage: ({ phase, i }) => {
+        pre = phase === "read" ? (many ? `Zdjęcie ${i + 1}${of}: ` : "")
+          : `Suma się nie zgadza – czytam jeszcze raz, ostrzej${many ? ` (zdjęcie ${i + 1}${of})` : ""}: `;
+      },
+    });
+    if (!out || token !== scanToken || !draft) return;
+    pre = "";
+    if (!many && out.errors[0]) { status("Nie udało się odczytać zdjęcia (" + (out.errors[0]?.message || out.errors[0]) + "). Spróbuj ponownie albo wpisz pozycje ręcznie."); return; }
+    let added = 0, skipped = 0, total = false;
+    const failed = [];
+    out.texts.forEach((t, n) => {
+      const r = t.trim() ? applyParsed(t) : null;
+      if (r) { added += r.added; skipped += r.skipped; total ||= r.total; } else failed.push(n + 1);
+    });
     if (many) {
-      pre = "";
       status(`Przeczytano ${files.length - failed.length} z ${files.length} zdjęć: dodano ${plItems(added)}`
         + (skipped ? `, pominięto ${skipped} powtórzon${skipped === 1 ? "ą" : "e"} z części wspólnych` : "")
         + (failed.length ? `. Nie odczytałem zdjęcia nr ${failed.join(", ")} – zrób je jeszcze raz albo wpisz pozycje ręcznie` : "")
         + (!total && !failed.length ? ". Nie widzę SUMA PLN – jeśli paragon ma dalszą część, dodaj jej zdjęcie." : "."));
     }
+  } catch (err) {
+    if (token !== scanToken) return;
+    pre = "";
+    status("Nie udało się odczytać zdjęć (" + (err?.message || err) + "). Spróbuj ponownie albo wpisz pozycje ręcznie.");
   } finally {
     if (token === scanToken) { $("#btn-scan").disabled = $("#btn-gallery").disabled = false; $("#btn-scan-stop").hidden = true; scanning = false; if (draft) renderTotals(); }
   }

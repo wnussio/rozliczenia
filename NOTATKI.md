@@ -37,8 +37,17 @@ python score.py js_all.json --list
 ```
 Uwaga: edycje regexów w JS rób narzędziem do edycji plików albo skryptem .py zapisanym do pliku – heredoc w Bashu potrafił zamienić `\b` na znak backspace (sprawdzaj `0x08`).
 
+## Kilka zdjęć / szybkość (31.10.2026, wieczór)
+- Kilka zdjęć jednego paragonu (`readReceipts` w `ocr.js`): najpierw zwykły odczyt wszystkich, potem ocena całości
+  (`scoreTexts` w `app.js`: pozycje po `mergeScan` kontra SUMA PLN z dowolnego zdjęcia); ponowne odczyty tylko gdy
+  suma się nie zgadza i tylko gdy poprawiają całość. Wcześniej każda część bez SUMA PLN była czytana 3×.
+- Wielowątkowy OCR: `sw.js` dokłada COOP/COEP → `crossOriginIsolated` → onnxruntime na 4 wątkach (pierwsze otwarcie
+  przed instalacją SW nadal na 1 wątku).
+- Wyniki: 119 Commons 116/119 jak wcześniej (te same c036/c038/c143), mediana 3,3 s zamiast 9,0 s na zdjęcie;
+  Lidl z 4 zdjęć (37f8,8e0c,0a03,94ad): stara wersja 94 s i zła suma, nowa 36 s i zgodna z SUMA PLN.
+
 ## Do zrobienia (następne kroki)
-1. **Szybkość odczytu na telefonie** (10–17 s na laptopie → telefon wolniej): detekcja na mniejszym obrazie dla dużych zdjęć, mniej próbek orientacji, ewentualnie WebGPU.
+1. **Szybkość odczytu na telefonie**: wątki już są; dalej ewentualnie detekcja na mniejszym obrazie, WebGPU.
 2. **Dotrenowanie modelu** (prośba użytkownika): polskie znaki w nazwach (obecny model rec jest chiński – „Maslo”), odporność na poruszenie/tani aparat. Pomysł: model *latin* PP-OCR albo fine-tuning na syntetycznych liniach paragonów (czcionki termiczne + augmentacje blur/szum/JPEG).
 3. Sprawdzić na prawdziwym telefonie (Android/iPhone): pierwsze pobranie modelu, czas, pamięć.
 4. Pozostałe nieudane z Commons: c036/c038 (bardzo słabe skany Intermarché), c143 (Żabka, zbyt mała rozdzielczość).

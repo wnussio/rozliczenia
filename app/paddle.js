@@ -14,7 +14,8 @@ export function initPaddle() {
     if (!window.ort) await loadScript(BASE + "vendor/ort/ort.wasm.min.js");
     const ort = window.ort;
     ort.env.wasm.wasmPaths = BASE + "vendor/ort/";
-    ort.env.wasm.numThreads = 1; // GitHub Pages nie daje izolacji wątków
+    // Kilka wątków, gdy strona jest „cross-origin isolated” (nagłówki COOP/COEP dokłada sw.js) – ten sam wynik, szybciej.
+    ort.env.wasm.numThreads = self.crossOriginIsolated ? Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1)) : 1;
     const opts = { executionProviders: ["wasm"], graphOptimizationLevel: "all" };
     progress({ status: "Ładuję model rozpoznawania (pierwszy raz ok. 30 MB)…", progress: 0.05 });
     det = await ort.InferenceSession.create(BASE + "models/det.onnx", opts);
@@ -207,11 +208,23 @@ function toLines(items) {
 const alnum = (t) => (t.match(/[0-9A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż]/g) || []).length;
 
 /* ---------- całość: zdjęcie → tekst paragonu ---------- */
+// Zdjęcie zdekodowane i zmniejszone raz – ponowne odczyty tego samego pliku biorą kopię (dekodowanie 12 Mpx trwa).
+const scaled = new WeakMap();
+async function loadScaled(file) {
+  let base = scaled.get(file);
+  if (!base) {
+    const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
+    const sc = Math.min(1, 2000 / Math.max(bmp.width, bmp.height)); // jak max_side_len w RapidOCR
+    base = canvas(bmp.width * sc, bmp.height * sc); ctx2d(base).drawImage(bmp, 0, 0, base.width, base.height);
+    bmp.close?.();
+    scaled.set(file, base);
+  }
+  const img = canvas(base.width, base.height); ctx2d(img).drawImage(base, 0, 0);
+  return img;
+}
 export async function paddleRead(file, isCancelled = () => false) {
   await initPaddle();
-  const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
-  const sc = Math.min(1, 2000 / Math.max(bmp.width, bmp.height)); // jak max_side_len w RapidOCR
-  let img = canvas(bmp.width * sc, bmp.height * sc); ctx2d(img).drawImage(bmp, 0, 0, img.width, img.height);
+  let img = await loadScaled(file);
   progress({ status: "Szukam tekstu na zdjęciu…", progress: 0.1 });
   let boxes = await detect(img);
   if (isCancelled()) return null;
@@ -230,10 +243,7 @@ export async function paddleRead(file, isCancelled = () => false) {
 // Ponowny odczyt z innym przygotowaniem obrazu (wyostrzenie, powiększenie) – przy znanym już położeniu zdjęcia.
 export async function paddleReread(file, deg, variant, isCancelled = () => false) {
   await initPaddle();
-  const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
-  const sc = Math.min(1, 2000 / Math.max(bmp.width, bmp.height));
-  let img = canvas(bmp.width * sc, bmp.height * sc); ctx2d(img).drawImage(bmp, 0, 0, img.width, img.height);
-  img = applyVariant(rotateCanvas(img, deg), variant);
+  const img = applyVariant(rotateCanvas(await loadScaled(file), deg), variant);
   progress({ status: "Czytam jeszcze raz, ostrzej…", progress: 0.1 });
   const boxes = await detect(img);
   if (isCancelled()) return null;
