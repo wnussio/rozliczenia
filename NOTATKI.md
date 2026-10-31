@@ -46,8 +46,20 @@ Uwaga: edycje regexów w JS rób narzędziem do edycji plików albo skryptem .py
 - Wyniki: 119 Commons 116/119 jak wcześniej (te same c036/c038/c143), mediana 3,3 s zamiast 9,0 s na zdjęcie;
   Lidl z 4 zdjęć (37f8,8e0c,0a03,94ad): stara wersja 94 s i zła suma, nowa 36 s i zgodna z SUMA PLN.
 
+## Przyspieszenie, runda 2 (31.10.2026, noc)
+- Profil (20 zdjęć): rozpoznawanie linii 81% czasu (w tym sprawdzanie „do góry nogami” 19%), detekcja 14%.
+- **Wdrożone:** krótsze sprawdzanie orientacji (stop po 3 ramkach, gdy wynik oczywisty) → −27% czasu, tekst identyczny 30/30;
+  kolejne zdjęcie można dodać w trakcie odczytu (dołącza do kolejki); `yieldUI` w `paddle.js` oddaje wątek przeglądarce
+  między liniami (bez tego strona „zamarzała” na cały odczyt; koszt ok. 2,5%).
+- **Odrzucone:** int8 (dynamiczna kwantyzacja) – w onnxruntime-web ok. 5% wolniej; detekcja na 1400 px – tylko ok. 3% zysku,
+  a zmienia tekst OCR w 11/30 zdjęć.
+- Testy (próbka 30 zdjęć co 5. z samples_all, `test_full_sample.html?step=5`): 23/23 zgodne, mediana 2,4 s (było 3,3 s).
+  Lidl z 4 zdjęć: 36 s ✓ (naraz) i 37 s ✓ (dokładane co 3 s).
+- Uwaga przy testach: zamykając procesy testowe nie szukaj po fragmencie własnej linii poleceń (zabija własną powłokę) –
+  `killtag.ps1` w dev-tests pomija bieżący proces i zamyka tylko msedge/python.
+
 ## Do zrobienia (następne kroki)
-1. **Szybkość odczytu na telefonie**: wątki już są; dalej ewentualnie detekcja na mniejszym obrazie, WebGPU.
+1. **Szybkość**: dalej rozpoznawanie kilku linii naraz (paczki w `rec.run`) i WebGPU – oba wymagają pełnego testu dokładności.
 2. **Dotrenowanie modelu** (prośba użytkownika): polskie znaki w nazwach (obecny model rec jest chiński – „Maslo”), odporność na poruszenie/tani aparat. Pomysł: model *latin* PP-OCR albo fine-tuning na syntetycznych liniach paragonów (czcionki termiczne + augmentacje blur/szum/JPEG).
 3. Sprawdzić na prawdziwym telefonie (Android/iPhone): pierwsze pobranie modelu, czas, pamięć.
 4. Pozostałe nieudane z Commons: c036/c038 (bardzo słabe skany Intermarché), c143 (Żabka, zbyt mała rozdzielczość).

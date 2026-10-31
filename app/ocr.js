@@ -197,36 +197,46 @@ export async function readReceipt(file, isCancelled = () => false) {
 // Kilka zdjęć jednego paragonu. Najpierw zwykły odczyt wszystkich, potem ocena całości (score: połączone pozycje
 // kontra SUMA PLN z któregokolwiek zdjęcia). Ponowne odczyty (ostrzej) tylko gdy suma się nie zgadza – i każdy
 // zostaje tylko wtedy, gdy poprawia zgodność całego paragonu.
-// rereadWithoutTotal: czy czytać ponownie, gdy na żadnym zdjęciu nie ma SUMA PLN (dla pojedynczego zdjęcia jak dotąd).
-export async function readReceipts(files, { isCancelled = () => false, score, rereadWithoutTotal = false, onStage = () => {} } = {}) {
-  const reads = [];
-  for (let i = 0; i < files.length; i++) {
-    onStage({ phase: "read", i });
-    try {
-      const r = await firstRead(files[i], isCancelled);
-      if (!r) return null;
-      reads.push(r);
-    } catch (e) {
-      if (isCancelled()) return null;
-      reads.push({ text: "", error: e });
+// files może rosnąć w trakcie (kolejne zdjęcie zrobione podczas odczytu) – nowe są czytane, zanim skończymy.
+// rereadWithoutTotal(): czy czytać ponownie, gdy na żadnym zdjęciu nie ma SUMA PLN (dla pojedynczego zdjęcia jak dotąd).
+export async function readReceipts(files, { isCancelled = () => false, score, rereadWithoutTotal = () => false, onStage = () => {} } = {}) {
+  const reads = [], texts = [], rr = new Map(); // rr: wyniki ponownych odczytów „i:wariant” (żeby nie czytać dwa razy)
+  let tries = 0, best = 1e9;
+  const readNew = async () => {
+    while (reads.length < files.length) {
+      const i = reads.length;
+      onStage({ phase: "read", i });
+      let r;
+      try { r = await firstRead(files[i], isCancelled); if (!r) return false; }
+      catch (e) { if (isCancelled()) return false; r = { text: "", error: e }; }
+      reads.push(r); texts.push(r.text || ""); tries++;
     }
-  }
-  const texts = reads.map((r) => r.text || "");
-  let best = score(texts), tries = files.length;
-  if (best !== 0 && (best < 1e6 || rereadWithoutTotal)) {
-    for (let i = 0; i < files.length && best !== 0; i++) {
-      if (reads[i].engine !== "paddle" || !texts[i].trim()) continue;
-      for (const v of REREAD) {
-        if (best === 0) break;
-        onStage({ phase: "reread", i });
-        const r2 = await paddleReread(files[i], reads[i].angle, v, isCancelled);
-        if (!r2 || isCancelled()) return null;
-        tries++;
-        const cand = texts.slice(); cand[i] = r2.text;
-        const sc = score(cand);
-        if (sc < best) { best = sc; texts[i] = r2.text; }
+    best = score(texts);
+    return true;
+  };
+  if (!(await readNew())) return null;
+  outer: for (;;) {
+    if (best !== 0 && (best < 1e6 || rereadWithoutTotal())) {
+      for (let i = 0; i < reads.length && best !== 0; i++) {
+        if (reads[i].engine !== "paddle" || !reads[i].text.trim()) continue;
+        for (const v of REREAD) {
+          if (best === 0) break;
+          if (reads.length < files.length) { if (!(await readNew())) return null; continue outer; }
+          const key = i + ":" + v;
+          if (!rr.has(key)) {
+            onStage({ phase: "reread", i });
+            const r2 = await paddleReread(files[i], reads[i].angle, v, isCancelled);
+            if (!r2 || isCancelled()) return null;
+            rr.set(key, r2.text); tries++;
+          }
+          const cand = texts.slice(); cand[i] = rr.get(key);
+          const sc = score(cand);
+          if (sc < best) { best = sc; texts[i] = cand[i]; }
+        }
       }
     }
+    if (reads.length < files.length) { if (!(await readNew())) return null; continue; }
+    break;
   }
   ocrState.attempt = "";
   return { texts, errors: reads.map((r) => r.error || null), tries, score: best };

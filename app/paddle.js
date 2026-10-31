@@ -205,6 +205,12 @@ function toLines(items) {
   return rows.map((r) => r.items.sort((p, q) => p.x - q.x).map((i) => i.text).join("  ")).join("\n");
 }
 
+// Oddaj na chwilę wątek przeglądarce (stuknięcia, nowe zdjęcie z aparatu, odświeżenie postępu na ekranie).
+// Bez tego cały odczyt idzie jednym ciągiem i strona „zamarza”. MessageChannel – bez 4-ms opóźnienia setTimeout;
+// jeden wspólny kanał trzymany w module (tymczasowy mógłby zostać sprzątnięty z pamięci i odczyt by stanął).
+const uiChan = new MessageChannel(), uiWaiting = [];
+uiChan.port1.onmessage = () => uiWaiting.shift()?.();
+const yieldUI = () => new Promise((r) => { uiWaiting.push(r); uiChan.port2.postMessage(0); });
 const alnum = (t) => (t.match(/[0-9A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż]/g) || []).length;
 
 /* ---------- całość: zdjęcie → tekst paragonu ---------- */
@@ -301,9 +307,12 @@ async function finish(img, boxes, deg, isCancelled, fixedOrientation = false) {
   // 2) do góry nogami? – próbny odczyt największych ramek w obu kierunkach
   const sample = [...boxes].sort((p, q) => Math.hypot(q[1][0] - q[0][0], q[1][1] - q[0][1]) - Math.hypot(p[1][0] - p[0][0], p[1][1] - p[0][1])).slice(0, 8);
   let up = 0, down = 0;
-  for (const b of sample) {
-    const r0 = await recognize(crop(img, b)), r1 = await recognize(crop(img, b, true));
+  for (let k = 0; k < sample.length; k++) {
+    await yieldUI();
+    const b = sample[k], r0 = await recognize(crop(img, b)), r1 = await recognize(crop(img, b, true));
     up += alnum(r0.text) * r0.conf; down += alnum(r1.text) * r1.conf;
+    // wynik już oczywisty (jeden kierunek wyraźnie czytelniejszy na 3 największych ramkach) – szkoda czasu na resztę
+    if (k >= 2 && (up > 3 * down || down > 3 * up) && Math.max(up, down) >= 15) break;
   }
   if (down > up * 1.15) turn(180);
   return readAll(img, boxes, deg, isCancelled);
@@ -312,6 +321,7 @@ async function readAll(img, boxes, deg, isCancelled) {
   // 3) odczyt wszystkich ramek
   const items = [];
   for (let i = 0; i < boxes.length; i++) {
+    await yieldUI();
     if (isCancelled()) return null;
     if (i % 5 === 0) progress({ status: `Czytam paragon… ${Math.round((i / boxes.length) * 100)}%`, progress: 0.2 + 0.8 * (i / boxes.length) });
     const r = await recognize(crop(img, boxes[i]));
