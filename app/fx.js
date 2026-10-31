@@ -77,6 +77,7 @@ export function ambient() {
 
 // Gdy przewiniesz do pozycji/paragonu z np. pierogami – spadają pierogi (raz na element, z przerwą między deszczami).
 const lastByEmoji = new Map();
+const SCROLL_RAIN = new Set(["🥟"]); // produkty, które spadają przy przewinięciu do nich
 export function watchScroll(root, selector) {
   if (!("IntersectionObserver" in window)) return null;
   const io = new IntersectionObserver((entries) => {
@@ -86,7 +87,7 @@ export function watchScroll(root, selector) {
       if (!e.isIntersecting || el.dataset.rained) continue;
       el.dataset.rained = "1";
       for (const ch of [...(el.dataset.emo || "")]) {
-        if (!ch.trim() || ch === "️") continue;
+        if (!SCROLL_RAIN.has(ch)) continue; // przy przewijaniu tylko wybrane (pierogi), nie każdy produkt
         if (now - (lastByEmoji.get(ch) || -1e9) < 4000) continue; // ten sam produkt najwyżej raz na 4 s
         lastByEmoji.set(ch, now);
         fresh.push(ch);
