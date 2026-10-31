@@ -105,7 +105,13 @@
         </div>
         <span class="muted small" id="scan-status">Paragon czyta telefon, zdjęcie nigdzie nie jest wysyłane. Pozycje możesz też dodać ręcznie.</span>
         <button type="button" class="btn" id="btn-scan-stop" hidden>Przerwij</button>
-        <details id="raw-box" hidden><summary class="small">Odczytany tekst</summary><pre id="raw-text"></pre></details>
+        <details id="raw-box" hidden>
+          <summary class="small">Odczytany tekst: popraw i rozpoznaj ponownie</summary>
+          <div class="stack">
+            <textarea id="raw-text" rows="10" class="mono" spellcheck="false"></textarea>
+            <button type="button" class="btn" id="btn-reparse">Rozpoznaj ponownie z tego tekstu</button>
+          </div>
+        </details>
       </div>
       <div class="row2">
         <div class="field"><label class="label" for="ed-store">Sklep</label><input id="ed-store" placeholder="np. Biedronka"></div>

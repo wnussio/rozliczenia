@@ -2,6 +2,8 @@
 // dane w pamięci przeglądarki (localStorage), paragony czyta OCR w telefonie (Tesseract.js),
 // między telefonami dane przenosi się plikiem (opcjonalnie zaszyfrowanym hasłem).
 import { parseReceipt } from "./parser.js";
+import { readReceipt, setProgress, terminate, workerReady, ocrState } from "./ocr.js";
+let scanToken = 0;
 
 /* ---------- pomocnicze ---------- */
 const $ = (s) => document.querySelector(s);
@@ -325,48 +327,12 @@ $("#btn-del").onclick = () => {
 };
 
 /* ---------- odczyt paragonu w telefonie (Tesseract.js, pliki w vendor/) ---------- */
-let ocrWorker = null, ocrProgress = () => {}, scanToken = 0;
-function loadScript(src) {
-  return new Promise((res, rej) => { const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = () => rej(new Error("Nie udało się wczytać " + src)); document.head.append(s); });
-}
-async function getWorker() {
-  if (ocrWorker) return ocrWorker;
-  if (!window.Tesseract) await loadScript("vendor/tesseract/tesseract.min.js");
-  const base = new URL("vendor/tesseract/", location.href).href;
-  const w = await window.Tesseract.createWorker("pol", 1, {
-    workerPath: base + "worker.min.js", corePath: base.replace(/\/$/, ""), langPath: base + "lang",
-    workerBlobURL: false, logger: (m) => ocrProgress(m),
-  });
-  await w.setParameters({ tessedit_pageseg_mode: "4", preserve_interword_spaces: "1" });
-  ocrWorker = w;
-  return w;
-}
-async function prepImage(file) {
-  // Skala szarości + rozciągnięcie kontrastu: Tesseract lepiej czyta wyblakły druk termiczny.
-  const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
-  let scale = Math.min(2.5, 1600 / bmp.width);
-  if (bmp.width * bmp.height * scale * scale > 12e6) scale = Math.sqrt(12e6 / (bmp.width * bmp.height));
-  const c = document.createElement("canvas");
-  c.width = Math.round(bmp.width * scale); c.height = Math.round(bmp.height * scale);
-  const ctx = c.getContext("2d", { willReadFrequently: true });
-  ctx.drawImage(bmp, 0, 0, c.width, c.height);
-  const img = ctx.getImageData(0, 0, c.width, c.height), d = img.data;
-  const hist = new Uint32Array(256);
-  for (let i = 0; i < d.length; i += 4) { const y = (d[i] * 299 + d[i + 1] * 587 + d[i + 2] * 114) / 1000 | 0; d[i] = y; hist[y]++; }
-  const n = d.length / 4; let lo = 0, hi = 255, acc = 0;
-  while (lo < 255 && (acc += hist[lo]) < n * 0.02) lo++;
-  acc = 0; while (hi > 0 && (acc += hist[hi]) < n * 0.02) hi--;
-  const span = Math.max(1, hi - lo);
-  for (let i = 0; i < d.length; i += 4) { const v = Math.max(0, Math.min(255, (d[i] - lo) * 255 / span)); d[i] = d[i + 1] = d[i + 2] = v; }
-  ctx.putImageData(img, 0, 0);
-  return c;
-}
 function applyParsed(text) {
   const res = parseReceipt(text);
-  $("#raw-text").textContent = text; $("#raw-box").hidden = false;
-  if (!res.items.length) { $("#scan-status").textContent = "Nie rozpoznałem pozycji. Zrób wyraźniejsze zdjęcie (płasko, dobre światło, cały paragon) albo wpisz pozycje ręcznie."; return; }
-  const parsed = res.items.map((x) => ({ name: x.name, g: x.g, opt: draft.defOpt || "shared" }));
-  draft.items = draft.items.filter((it) => it.g || it.name).concat(parsed);
+  $("#raw-text").value = text; $("#raw-box").hidden = false;
+  if (!res.items.length) { $("#scan-status").textContent = "Nie rozpoznałem pozycji. Zrób zdjęcie z bliska, płasko, w dobrym świetle (długi paragon: w dwóch częściach) albo popraw odczytany tekst poniżej."; return; }
+  const parsed = res.items.map((x) => ({ name: x.name, g: x.g, opt: draft.defOpt || "shared", scan: true }));
+  draft.items = draft.items.filter((it) => !it.scan && (it.g || it.name)).concat(parsed);
   if (res.store && !$("#ed-store").value.trim()) $("#ed-store").value = res.store;
   if (res.date) $("#ed-date").value = res.date;
   draft.scannedTotal = res.total;
@@ -375,26 +341,25 @@ function applyParsed(text) {
 }
 function stopScan() {
   scanToken++;
-  if (ocrWorker && !$("#btn-scan-stop").hidden) { ocrWorker.terminate(); ocrWorker = null; }
+  if (workerReady() && !$("#btn-scan-stop").hidden) terminate();
   $("#btn-scan").disabled = $("#btn-gallery").disabled = false; $("#btn-scan-stop").hidden = true;
 }
 async function scan(file) {
   const token = ++scanToken;
   $("#btn-scan").disabled = $("#btn-gallery").disabled = true; $("#btn-scan-stop").hidden = false;
-  $("#scan-status").textContent = "Przygotowuję zdjęcie…";
-  ocrProgress = (m) => {
+  $("#scan-status").textContent = "Przygotowuję zdjęcie (kadrowanie, prostowanie)…";
+  setProgress((m) => {
     if (token !== scanToken) return;
     const p = m.progress ? ` ${Math.round(m.progress * 100)}%` : "";
-    $("#scan-status").textContent = m.status === "recognizing text" ? `Czytam paragon…${p}`
+    const a = ocrState.attempt;
+    $("#scan-status").textContent = m.status === "recognizing text"
+      ? `Czytam paragon${a && a !== "1/3" ? ` (próba ${a}: szukam odczytu zgodnego z sumą)` : ""}…${p}`
       : `Przygotowuję odczyt (pierwszy raz trwa dłużej)…${p}`;
-  };
+  });
   try {
-    const canvas = await prepImage(file);
-    const w = await getWorker();
-    if (token !== scanToken) return;
-    const { data } = await w.recognize(canvas);
-    if (token !== scanToken || !draft) return;
-    applyParsed(data.text || "");
+    const res = await readReceipt(file, () => token !== scanToken || !draft);
+    if (!res || token !== scanToken || !draft) return;
+    applyParsed(res.text);
   } catch (err) {
     if (token !== scanToken) return;
     $("#scan-status").textContent = "Nie udało się odczytać zdjęcia (" + (err?.message || err) + "). Spróbuj ponownie albo wpisz pozycje ręcznie.";
@@ -409,7 +374,8 @@ for (const id of ["#scan-file", "#scan-gallery"]) {
   $(id).onchange = (e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) scan(f); };
 }
 $("#btn-paste").onclick = () => { $("#paste-box").hidden = !$("#paste-box").hidden; if (!$("#paste-box").hidden) $("#paste-text").focus(); };
-$("#btn-paste-go").onclick = () => { const t = $("#paste-text").value; if (t.trim()) { applyParsed(t); $("#paste-box").hidden = true; $("#paste-text").value = ""; } };
+$("#btn-reparse").onclick = () => { const t = $("#raw-text").value; if (t.trim()) applyParsed(t); };
+$("#btn-paste-go").onclick =() => { const t = $("#paste-text").value; if (t.trim()) { applyParsed(t); $("#paste-box").hidden = true; $("#paste-text").value = ""; } };
 
 /* ---------- ustawienia ---------- */
 let setDraft = null;

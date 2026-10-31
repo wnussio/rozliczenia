@@ -4,7 +4,7 @@
 const VERSION = "__VERSION__";
 const CACHE = `rozliczenia-${VERSION}`;
 const VENDOR = "rozliczenia-vendor-tesseract-7.0.0"; // duże pliki OCR – pobierane raz, przy pierwszym skanie
-const FILES = ["./", "index.html", "style.css", "app.js", "parser.js", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
+const FILES = ["./", "index.html", "style.css", "app.js", "parser.js", "ocr.js", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(FILES)));
