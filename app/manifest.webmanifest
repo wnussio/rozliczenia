@@ -1,7 +1,7 @@
 {
   "name": "Rozliczenia",
   "short_name": "Rozliczenia",
-  "description": "Wspólne rachunki: skanuj paragony, przypisuj pozycje i sprawdzaj, kto komu ile oddaje.",
+  "description": "Wspólne rachunki: skanuj paragony, przypisuj pozycje i sprawdzaj, kto komu ile oddaje. Dane zostają w telefonie.",
   "lang": "pl",
   "start_url": "./",
   "scope": "./",

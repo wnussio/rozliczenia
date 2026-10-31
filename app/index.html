@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#0d7a6f">
-  <meta name="description" content="Wspólne rachunki: skanuj paragony, przypisuj pozycje i sprawdzaj, kto komu ile oddaje.">
+  <meta name="description" content="Wspólne rachunki: skanuj paragony, przypisuj pozycje i sprawdzaj, kto komu ile oddaje. Dane zostają w telefonie.">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Rozliczenia">
@@ -12,8 +12,6 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon-192.png">
   <link rel="apple-touch-icon" href="icon-192.png">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -21,9 +19,9 @@
   <header>
     <div>
       <h1>Rozliczenia</h1>
-      <p class="status" id="status"></p>
+      <p class="status">dane tylko w tym telefonie</p>
     </div>
-    <nav class="tabs" id="tabs" hidden>
+    <nav class="tabs" id="tabs">
       <button type="button" data-view="home" aria-pressed="true">Saldo</button>
       <button type="button" data-view="settings" aria-pressed="false">Ustawienia</button>
     </nav>
@@ -33,55 +31,31 @@
     <button type="button" class="btn small primary" id="update-btn">Odśwież</button>
   </div>
 
-  <!-- BRAK KONFIGURACJI -->
-  <section id="v-missing" hidden>
-    <div class="empty">
-      <p><b>Baza danych nie jest jeszcze podłączona.</b></p>
-      <p>Uzupełnij plik <code>app/firebase-config.js</code> w repozytorium (instrukcja w <code>INSTRUKCJA.txt</code>).</p>
-    </div>
-  </section>
-
-  <!-- START: utwórz / dołącz -->
-  <section id="v-start" hidden>
-    <div class="start">
-      <div class="panel">
-        <h2>Pierwszy telefon</h2>
-        <p class="muted">Wpisz imiona i utwórz wspólną bazę. Potem wyślij link drugiej osobie, żeby dołączyła. Imiona zmienisz później w Ustawieniach.</p>
-        <div class="row2">
-          <input id="new-p0" placeholder="Osoba 1" aria-label="Imię osoby 1" autocomplete="off">
-          <input id="new-p1" placeholder="Osoba 2" aria-label="Imię osoby 2" autocomplete="off">
-        </div>
-        <button type="button" class="btn primary big" id="btn-create">Utwórz wspólną bazę</button>
-      </div>
-      <div class="panel">
-        <h2>Drugi telefon</h2>
-        <p class="muted">Otwórz link od drugiej osoby albo wklej kod bazy.</p>
-        <div class="join-row">
-          <input id="join-code" placeholder="Kod bazy" autocomplete="off" autocapitalize="off" spellcheck="false">
-          <button type="button" class="btn primary" id="btn-join">Dołącz</button>
-        </div>
-      </div>
-      <div id="start-notice"></div>
-    </div>
-  </section>
-
-  <!-- HOME -->
-  <section id="v-home" hidden>
+  <!-- EKRAN GŁÓWNY -->
+  <section id="v-home">
     <div class="balance">
-      <span class="label">Do oddania</span>
-      <div class="bal-who" id="bal-who">Wczytuję…</div>
-      <div class="bal-amt num" id="bal-amt">—</div>
-      <div><button type="button" class="btn" id="btn-settle" hidden>Zapisz spłatę</button></div>
-      <div class="settle" id="settle" hidden>
-        <span id="settle-txt"></span>
-        <input id="settle-amt" inputmode="decimal" aria-label="Kwota spłaty">
-        <button type="button" class="btn primary" id="settle-ok">Zapisz</button>
-        <button type="button" class="btn" id="settle-cancel">Anuluj</button>
-      </div>
+      <span class="label">Do oddania · nierozliczone</span>
+      <div class="bal-who" id="bal-who"></div>
+      <div class="bal-amt num" id="bal-amt">0,00 zł</div>
+      <div><button type="button" class="btn" id="btn-settle-pick" hidden>Wybierz, co rozliczyć</button></div>
     </div>
     <div class="actions">
       <button type="button" class="btn primary big" id="btn-new">📷 Paragon</button>
       <button type="button" class="btn big" id="btn-quick">+ Kwota</button>
+    </div>
+    <div class="toolbar">
+      <div class="seg small" id="f-filter">
+        <button type="button" data-f="open">Do rozliczenia</button>
+        <button type="button" data-f="done">Rozliczone</button>
+        <button type="button" data-f="all">Wszystko</button>
+      </div>
+      <div class="toolbar-row">
+        <div class="seg small" id="f-group">
+          <button type="button" data-g="month">Miesiące</button>
+          <button type="button" data-g="group">Grupy</button>
+        </div>
+        <button type="button" class="btn small" id="btn-select">Zaznacz</button>
+      </div>
     </div>
     <div id="home-notice"></div>
     <div class="list" id="list"></div>
@@ -95,7 +69,11 @@
       <div class="field"><label class="label" for="q-amt">Kwota</label><input id="q-amt" class="big-input num" inputmode="decimal" placeholder="0,00"></div>
       <div class="field"><label class="label" for="q-desc">Za co</label><input id="q-desc" placeholder="np. Rachunek za prąd, pizza, bilety"></div>
       <div class="field"><span class="label">Czyje to?</span><div class="chips" id="q-opts"></div></div>
-      <div class="field"><label class="label" for="q-date">Data</label><input id="q-date" type="date"></div>
+      <div class="row2">
+        <div class="field"><label class="label" for="q-date">Data</label><input id="q-date" type="date"></div>
+        <div class="field"><label class="label" for="q-group">Grupa</label><input id="q-group" list="groups-list" placeholder="np. Wakacje"></div>
+      </div>
+      <label class="check"><input type="checkbox" id="q-settled"> Już rozliczone</label>
       <div class="notice" id="q-owe"></div>
       <div id="q-check"></div>
       <div id="q-del-wrap"><button type="button" class="btn danger" id="q-del">Usuń wpis</button></div>
@@ -117,20 +95,28 @@
         <input type="file" id="scan-file" accept="image/*" capture="environment" hidden>
         <input type="file" id="scan-gallery" accept="image/*" hidden>
         <div class="scan-btns">
-          <button type="button" class="btn" id="btn-scan">📷 Zrób zdjęcie</button>
-          <button type="button" class="btn" id="btn-gallery">🖼 Z galerii</button>
+          <button type="button" class="btn" id="btn-scan">📷 Zdjęcie</button>
+          <button type="button" class="btn" id="btn-gallery">🖼 Galeria</button>
+          <button type="button" class="btn" id="btn-paste">📋 Wklej tekst</button>
         </div>
-        <span class="muted small" id="scan-status">Zrób zdjęcie paragonu, a pozycje wpiszą się same. Możesz też dodać je ręcznie.</span>
+        <div id="paste-box" class="stack" hidden>
+          <textarea id="paste-text" rows="6" placeholder="Wklej tekst paragonu (np. skopiowany ze zdjęcia przez Tekst na żywo / Google Lens)"></textarea>
+          <button type="button" class="btn primary" id="btn-paste-go">Rozpoznaj pozycje</button>
+        </div>
+        <span class="muted small" id="scan-status">Paragon czyta telefon, zdjęcie nigdzie nie jest wysyłane. Pozycje możesz też dodać ręcznie.</span>
         <button type="button" class="btn" id="btn-scan-stop" hidden>Przerwij</button>
+        <details id="raw-box" hidden><summary class="small">Odczytany tekst</summary><pre id="raw-text"></pre></details>
       </div>
       <div class="row2">
         <div class="field"><label class="label" for="ed-store">Sklep</label><input id="ed-store" placeholder="np. Biedronka"></div>
         <div class="field"><label class="label" for="ed-date">Data</label><input id="ed-date" type="date"></div>
       </div>
+      <div class="field"><label class="label" for="ed-group">Grupa</label><input id="ed-group" list="groups-list" placeholder="np. Wakacje, Remont (opcjonalnie)"></div>
       <div class="field"><span class="label">Ustaw wszystkim pozycjom</span><div class="chips" id="bulk"></div></div>
       <div class="items" id="items"></div>
       <button type="button" class="btn" id="btn-add-item">+ Dodaj pozycję</button>
       <div class="groups" id="groups"></div>
+      <label class="check"><input type="checkbox" id="ed-settled"> Już rozliczone</label>
       <div id="ed-check"></div>
       <div id="ed-del-wrap"><button type="button" class="btn danger" id="btn-del">Usuń paragon</button></div>
     </div>
@@ -167,34 +153,42 @@
       <div id="set-notice"></div>
 
       <div class="field panel">
-        <span class="label">Wspólna baza</span>
-        <p class="muted small">Wyślij ten link drugiej osobie. Po otwarciu jej telefon połączy się z tą samą bazą. Kto ma link, widzi i może zmieniać rozliczenia.</p>
-        <code class="code" id="hh-code"></code>
+        <span class="label">Przenieś dane / kopia zapasowa</span>
+        <p class="muted small">Dane są tylko w tym telefonie. Żeby uzgodnić je z drugim telefonem albo zrobić kopię, zapisz plik i prześlij go (najlepiej AirDrop / Quick Share / Bluetooth, bez internetu). Na drugim telefonie stuknij „Wczytaj plik”: wpisy połączą się, nic się nie zdubluje.</p>
+        <label class="label" for="sync-pw">Hasło do pliku (zalecane)</label>
+        <input id="sync-pw" type="password" placeholder="Hasło szyfrujące plik" autocomplete="off">
         <div class="row-btns">
-          <button type="button" class="btn" id="btn-share">Wyślij link</button>
-          <button type="button" class="btn" id="btn-copy">Kopiuj link</button>
+          <button type="button" class="btn primary" id="btn-export">Zapisz / wyślij plik</button>
+          <button type="button" class="btn" id="btn-import">Wczytaj plik</button>
+          <input type="file" id="import-file" accept=".json,application/json,text/plain" hidden>
         </div>
-      </div>
-
-      <div class="field panel">
-        <span class="label">Skanowanie paragonów (Claude)</span>
-        <p class="muted small">Skanowanie używa klucza API Anthropic (console.anthropic.com → API Keys). Klucz zapisuje się tylko w tym telefonie. Jeden skan kosztuje kilka groszy.</p>
-        <input id="api-key" type="password" placeholder="sk-ant-..." autocomplete="off" spellcheck="false">
-        <div class="row-btns">
-          <button type="button" class="btn" id="btn-save-key">Zapisz klucz</button>
-          <button type="button" class="btn danger" id="btn-clear-key">Usuń klucz</button>
-        </div>
-        <div id="key-notice"></div>
+        <p class="muted small" id="backup-info"></p>
+        <div id="sync-notice"></div>
       </div>
 
       <div class="field panel">
         <span class="label">Ten telefon</span>
-        <button type="button" class="btn danger" id="btn-leave">Odłącz od bazy</button>
-        <p class="muted small">Dane zostają w bazie. Telefon można podłączyć ponownie tym samym linkiem.</p>
+        <button type="button" class="btn danger" id="btn-wipe">Usuń wszystkie dane z telefonu</button>
+        <p class="muted small">Najpierw zrób kopię zapasową. Usuniętych danych nie da się przywrócić.</p>
       </div>
     </div>
   </section>
 </div>
+
+<!-- pasek zaznaczania -->
+<div class="bar" id="selbar" hidden><div class="bar-in">
+  <div class="bar-sum">
+    <span class="muted small" id="sel-count">Zaznaczone: 0</span>
+    <b id="sel-owe">—</b>
+  </div>
+  <div class="bar-btns wrap-btns">
+    <button type="button" class="btn" id="sel-cancel">Anuluj</button>
+    <button type="button" class="btn danger" id="sel-del">Usuń</button>
+    <button type="button" class="btn" id="sel-unsettle" hidden>Cofnij rozliczenie</button>
+    <button type="button" class="btn primary" id="sel-settle">Rozliczone ✓</button>
+  </div>
+</div></div>
+<datalist id="groups-list"></datalist>
 <script type="module" src="app.js"></script>
 </body>
 </html>

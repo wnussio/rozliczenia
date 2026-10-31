@@ -3,75 +3,84 @@ ROZLICZENIA – INSTRUKCJA
 
 Link do aplikacji: https://wnussio.github.io/rozliczenia/
 
-
-A. JEDNORAZOWA KONFIGURACJA BAZY (Firebase, darmowe, ok. 5 minut)
------------------------------------------------------------------
-Baza przechowuje paragony i synchronizuje je między telefonami.
-
-1. Wejdź na https://console.firebase.google.com i zaloguj się kontem Google.
-2. „Utwórz projekt” → nazwa: rozliczenia → Google Analytics możesz wyłączyć → Utwórz.
-3. Menu po lewej: Kompilacja (Build) → Authentication → „Rozpocznij”
-   → zakładka „Metoda logowania” → „Anonimowo” → Włącz → Zapisz.
-4. Menu: Kompilacja → Firestore Database → „Utwórz bazę danych”
-   → lokalizacja: eur3 (Europa) → tryb produkcyjny → Utwórz.
-5. W Firestore otwórz zakładkę „Reguły”, usuń wszystko, wklej całą
-   zawartość pliku firestore.rules z tego repozytorium → „Opublikuj”.
-6. Ikona ⚙ (obok „Przegląd projektu”) → Ustawienia projektu → na dole
-   „Twoje aplikacje” → ikona </> (Sieć) → nazwa: Rozliczenia →
-   NIE zaznaczaj Firebase Hosting → Zarejestruj.
-7. Skopiuj pokazany blok firebaseConfig (apiKey, authDomain, projectId…)
-   i wklej te wartości do pliku app/firebase-config.js. Zapisz, wyślij na
-   GitHub (albo poproś Claude'a, żeby to zrobił).
-
-Dane z firebaseConfig nie są hasłem. Firebase zakłada, że są publiczne.
-Dostęp chronią reguły z kroku 5 i tajny kod bazy, który jest w linku do dołączenia.
+PRYWATNOŚĆ
+----------
+Wszystkie dane zostają w telefonie. Aplikacja nie ma żadnej bazy w chmurze,
+nie wysyła paragonów, zdjęć ani kwot do żadnego serwera. Paragon czyta sam
+telefon (rozpoznawanie tekstu działa offline). Z internetu pobierane są
+tylko pliki samej aplikacji, raz przy instalacji i przy aktualizacjach.
 
 
-B. INSTALACJA NA TELEFONIE
---------------------------
+INSTALACJA NA TELEFONIE
+-----------------------
 Tak samo jak Farmaceuta: to aplikacja webowa (PWA), nic nie trzeba odblokowywać.
 
 Android (Chrome): otwórz link → menu ⋮ → „Zainstaluj aplikację” / „Dodaj do ekranu głównego”.
 iPhone (Safari): otwórz link → Udostępnij (kwadrat ze strzałką) → „Do ekranu początkowego” → Dodaj.
 
-
-C. PIERWSZE URUCHOMIENIE
-------------------------
-1. Pierwszy telefon: wpisz dwa imiona (domyślnie „Osoba 1” i „Osoba 2”;
-   zmienisz je potem w Ustawieniach) → „Utwórz wspólną bazę”.
-2. Ustawienia → „Wyślij link” → wyślij go drugiej osobie (SMS, Messenger…).
-3. Drugi telefon: otwórz link w Chrome / Safari (nie w Messengerze!) →
-   „Dołącz” → potem zainstaluj aplikację jak w punkcie B.
-   Jeśli aplikacja jest już zainstalowana: skopiuj link i wklej go w polu
-   „Kod bazy” na ekranie startowym.
-4. Od teraz oba telefony widzą te same paragony i to samo saldo.
-
-Kto ma link, ma dostęp do rozliczeń. Nie publikuj go nigdzie.
+WAŻNE: używaj aplikacji z ikony na ekranie głównym, nie z karty przeglądarki.
+Dane są przypisane do zainstalowanej aplikacji. iPhone potrafi kasować dane
+stron otwieranych tylko w Safari, ale nie zainstalowanych aplikacji.
 
 
-D. SKANOWANIE PARAGONÓW
------------------------
-Skanowanie robi Claude (Anthropic) przez Twój klucz API:
-1. https://console.anthropic.com → zaloguj się → Billing: doładuj np. 5 $.
-2. API Keys → Create Key → skopiuj (zaczyna się od sk-ant-).
-3. W aplikacji: Ustawienia → Skanowanie paragonów → wklej → „Zapisz klucz”.
-Klucz zapisuje się tylko w tym telefonie. Jeśli druga osoba też ma skanować,
-wpisuje klucz u siebie (może być ten sam). Jeden skan kosztuje kilka groszy.
-Bez klucza wszystko działa, tylko pozycje wpisuje się ręcznie.
+PIERWSZE URUCHOMIENIE
+---------------------
+Wpisz dwa imiona (domyślnie „Osoba 1” i „Osoba 2”) i stuknij „Zapisz ustawienia”.
+Imiona i własne podziały (np. „Dom 60/40”) zmienisz potem w Ustawieniach.
 
 
-E. JAK LICZONE JEST SALDO
--------------------------
-Przy każdej pozycji wybierasz, czyja jest:
-- Wspólne → druga osoba oddaje płacącemu połowę,
-- rzecz płacącego (np. Osoba 1 płaci za swoje części do roweru) → nic do oddania,
-- rzecz drugiej osoby (np. Osoba 2 kupuje Osobie 1 coś do roweru) → oddaje całość,
-- własne podziały (Ustawienia), np. „Dom 60/40”.
-„+ Kwota” służy do wydatków bez paragonu (rachunek za prąd, pizza, bilety).
-„Zapisz spłatę”, gdy oddacie sobie pieniądze. Saldo wtedy się zeruje.
+CODZIENNE UŻYCIE
+----------------
+📷 Paragon
+  - „Zdjęcie” albo „Galeria”: telefon odczyta pozycje, ceny, rabaty, sklep,
+    datę i sumę. Pierwszy odczyt trwa dłużej (pobiera się ok. 7 MB plików do
+    rozpoznawania tekstu, potem działają offline).
+  - „Wklej tekst”: zamiast zdjęcia możesz skopiować tekst z paragonu
+    (iPhone: zdjęcie → Tekst na żywo → Kopiuj; Android: Google Lens → Tekst)
+    i wkleić go. Często jest dokładniejsze.
+  - Aplikacja porówna pozycje z „SUMA PLN” i pokaże, jeśli coś się nie zgadza.
+  - Przy każdej pozycji wybierz: Wspólne / osoba / własny podział.
++ Kwota
+  - Wydatek bez paragonu (rachunek, pizza, bilety).
+
+Grupy
+  - Każdy wpis może mieć grupę (np. „Wakacje”, „Remont”). Na ekranie głównym
+    przełącz widok „Miesiące” / „Grupy”. W widoku grup widać saldo każdej grupy.
+
+Rozliczanie
+  - „Wybierz, co rozliczyć” zaznacza wszystkie nierozliczone wpisy. Odznacz
+    te, których jeszcze nie rozliczacie, i stuknij „Rozliczone ✓”.
+  - „Zaznacz” pozwala wybrać dowolne wpisy i je rozliczyć, cofnąć rozliczenie
+    albo usunąć. W nagłówku miesiąca lub grupy jest „Zaznacz wszystkie”.
+  - Saldo na górze liczy tylko wpisy nierozliczone.
+  - Filtr „Do rozliczenia / Rozliczone / Wszystko” pokazuje historię.
+
+Jak liczone jest saldo
+  - Wspólne → druga osoba oddaje płacącemu połowę,
+  - rzecz płacącego (np. swoje części do roweru) → nic do oddania,
+  - rzecz drugiej osoby (kupione dla niej) → oddaje całość,
+  - własne podziały, np. „Dom 60/40”.
 
 
-F. OFFLINE
-----------
-Aplikacja otwiera się bez internetu, a nowe wpisy wyślą się same po połączeniu.
-Skanowanie i dołączanie drugiego telefonu wymagają internetu.
+DWA TELEFONY I KOPIA ZAPASOWA
+-----------------------------
+Dane nie synchronizują się same, bo nigdzie ich nie wysyłamy. Żeby je uzgodnić:
+1. Na telefonie A: Ustawienia → wpisz hasło do pliku → „Zapisz / wyślij plik”
+   → wybierz AirDrop / Quick Share / Bluetooth (działa bez internetu).
+2. Na telefonie B: Ustawienia → wpisz TO SAMO hasło → „Wczytaj plik”.
+   Wpisy się łączą: nowe dochodzą, zmienione się aktualizują, usunięte znikają.
+   Nic się nie dubluje.
+3. Jeśli oba telefony coś dodawały, zrób to samo w drugą stronę (B → A).
+
+Prościej: można prowadzić rozliczenia na jednym telefonie.
+
+Kopia zapasowa: ten sam plik. Zapisuj go co jakiś czas (np. do Plików / na
+dysk) na wypadek utraty telefonu. Plik z hasłem jest zaszyfrowany (AES-256):
+bez hasła nikt go nie odczyta, ale Ty też nie. Hasło trzymaj w menedżerze haseł.
+Plik bez hasła da się odczytać, więc nie wysyłaj go przez komunikatory.
+
+
+AKTUALIZACJE
+------------
+Gdy wyjdzie nowa wersja, w aplikacji pojawi się pasek „Jest nowa wersja” → „Odśwież”.
+Dane zostają.

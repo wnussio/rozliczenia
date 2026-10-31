@@ -1,16 +1,7 @@
-// Rozliczenia – wspólne rachunki dwóch osób.
-// Dane: Firebase Firestore (synchronizacja między telefonami, działa też offline).
-// Skanowanie paragonów: Claude API, klucz zapisany tylko w danym telefonie.
-import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
-import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
-import {
-  initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
-  doc, collection, onSnapshot, setDoc, deleteDoc, getDoc,
-} from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
-import { firebaseConfig } from "./firebase-config.js";
-
-const ANTHROPIC_SDK = "https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@0.134.0/+esm";
-const MODEL = "claude-opus-5-5";
+// Rozliczenia – wspólne rachunki dwóch osób. Wszystko zostaje w telefonie:
+// dane w pamięci przeglądarki (localStorage), paragony czyta OCR w telefonie (Tesseract.js),
+// między telefonami dane przenosi się plikiem (opcjonalnie zaszyfrowanym hasłem).
+import { parseReceipt } from "./parser.js";
 
 /* ---------- pomocnicze ---------- */
 const $ = (s) => document.querySelector(s);
@@ -20,201 +11,211 @@ const fmtIn = (g) => (g / 100).toFixed(2).replace(".", ",");
 const parseMoney = (s) => { const n = parseFloat(String(s).replace(/\s/g, "").replace(",", ".")); return Number.isFinite(n) ? Math.round(n * 100) : 0; };
 const today = () => { const d = new Date(); return new Date(d - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); };
 const fmtDate = (s) => (s ? new Date(s + "T12:00:00").toLocaleDateString("pl-PL", { day: "numeric", month: "short" }) : "");
+const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 const LS = {
   get(k) { try { return localStorage.getItem("rozliczenia." + k); } catch { return null; } },
-  set(k, v) { try { localStorage.setItem("rozliczenia." + k, v); } catch { /* brak pamięci */ } },
-  del(k) { try { localStorage.removeItem("rozliczenia." + k); } catch { /* brak pamięci */ } },
+  set(k, v) { try { localStorage.setItem("rozliczenia." + k, v); } catch { /* brak miejsca */ } },
 };
 function notice(sel, text, kind = "") { $(sel).innerHTML = text ? `<div class="notice ${kind}">${esc(text)}</div>` : ""; }
+function armed(btn, label) { // potwierdzenie drugim stuknięciem
+  if (btn.dataset.armed) return true;
+  btn.dataset.armed = "1"; btn.dataset.label = btn.textContent; btn.textContent = label;
+  setTimeout(() => { if (btn.dataset.armed) { delete btn.dataset.armed; btn.textContent = btn.dataset.label; } }, 4000);
+  return false;
+}
+function disarm(btn) { if (btn.dataset.armed) { delete btn.dataset.armed; btn.textContent = btn.dataset.label; } }
 
-/* ---------- stan ---------- */
+/* ---------- dane ---------- */
+const KEY = "rozliczenia.dane";
 const DEFAULT_CONFIG = { people: ["Osoba 1", "Osoba 2"], options: [
   { id: "shared", label: "Wspólne", share: 50, fixed: true },
   { id: "p0", person: 0, share: 100, fixed: true },
   { id: "p1", person: 1, share: 0, fixed: true },
-] };
-let config = structuredClone(DEFAULT_CONFIG);
-let receipts = [], payments = [];
-let fs = null, household = null, unsubs = [];
-let draft = null, quick = null, scanCtl = null;
-const P = (i) => config.people[i] || (i ? "Osoba 2" : "Osoba 1");
+], updatedAt: 0 };
+let db = load();
+function load() {
+  try {
+    const s = JSON.parse(localStorage.getItem(KEY));
+    if (s && s.entries) return { config: s.config || structuredClone(DEFAULT_CONFIG), entries: s.entries, deleted: s.deleted || {} };
+  } catch { /* pusto */ }
+  return { config: structuredClone(DEFAULT_CONFIG), entries: {}, deleted: {} };
+}
+function persist() {
+  try { localStorage.setItem(KEY, JSON.stringify(db)); return true; }
+  catch (e) { notice("#home-notice", "Nie udało się zapisać w pamięci telefonu (" + e.name + "). Zrób kopię zapasową w Ustawieniach.", "bad"); return false; }
+}
+const entries = () => Object.values(db.entries);
+function putEntry(e) { e.updatedAt = Date.now(); db.entries[e.id] = e; persist(); }
+function removeEntries(ids) { const t = Date.now(); for (const id of ids) { delete db.entries[id]; db.deleted[id] = t; } persist(); }
+navigator.storage?.persist?.().catch(() => {}); // prośba, żeby przeglądarka nie czyściła danych
 
 /* ---------- logika podziału (share = % należący do osoby 1) ---------- */
-const optById = (id) => config.options.find((o) => o.id === id) || config.options[0];
+const cfg = () => db.config;
+const P = (i) => cfg().people[i] || (i ? "Osoba 2" : "Osoba 1");
+const optById = (id) => cfg().options.find((o) => o.id === id) || cfg().options[0];
 const optLabel = (o) => (o.person != null ? P(o.person) : o.label);
 const optClass = (o) => (o.person === 0 ? "c-p0" : o.person === 1 ? "c-p1" : o.id === "shared" ? "c-sh" : "c-cx");
 const pct = (o, who) => (who === 0 ? o.share : 100 - o.share);
 const itemOwed = (it, payer) => Math.round((it.g || 0) * pct(optById(it.opt), 1 - payer) / 100);
 const rOwed = (r) => (r.items || []).reduce((s, it) => s + itemOwed(it, r.payer), 0);
 const rTotal = (r) => (r.items || []).reduce((s, it) => s + (it.g || 0), 0);
-function balance() { // > 0: osoba 2 oddaje osobie 1
-  let b = 0;
-  for (const r of receipts) b += r.payer === 0 ? rOwed(r) : -rOwed(r);
-  for (const p of payments) b += p.from === 1 ? -p.g : p.g;
-  return b;
+const signed = (r) => (r.payer === 0 ? rOwed(r) : -rOwed(r)); // > 0: osoba 2 oddaje osobie 1
+const balanceOf = (list) => list.filter((r) => !r.settled).reduce((s, r) => s + signed(r), 0);
+function oweHtml(b) {
+  if (!b) return "nic do oddania";
+  const d = b > 0 ? 1 : 0;
+  return `<span class="who who-${d}">${esc(P(d))}</span> oddaje <span class="num">${fmt(Math.abs(b))}</span>`;
 }
-
-/* ---------- baza ---------- */
-const hhDoc = () => doc(fs, "households", household);
-const col = (name) => collection(fs, "households", household, name);
-function write(promise, sel) {
-  // Zapis trafia od razu do pamięci telefonu; do bazy wysyła się, gdy jest internet.
-  promise.catch((e) => notice(sel, "Nie udało się zapisać w bazie: " + (e?.code || e?.message || e) + ". Sprawdź internet i spróbuj ponownie.", "bad"));
-}
-function newCode() {
-  const abc = "abcdefghjkmnpqrstuvwxyz23456789";
-  const bytes = crypto.getRandomValues(new Uint8Array(24));
-  return Array.from(bytes, (b) => abc[b % abc.length]).join("");
-}
-const joinLink = () => location.origin + location.pathname + "#dolacz=" + household;
-
-function subscribe() {
-  unsubs.forEach((u) => u()); unsubs = [];
-  const fail = (e) => notice("#home-notice", e?.code === "permission-denied"
-    ? "Brak dostępu do tej bazy. Sprawdź link albo reguły bazy (INSTRUKCJA.txt)."
-    : "Problem z połączeniem z bazą: " + (e?.code || e?.message || e), "bad");
-  unsubs.push(onSnapshot(hhDoc(), (s) => {
-    if (s.exists()) {
-      const c = s.data();
-      config = { people: c.people || DEFAULT_CONFIG.people, options: c.options?.length ? c.options : DEFAULT_CONFIG.options };
-    }
-    renderHome();
-    if (!$("#v-edit").hidden) renderEditor();
-    if (!$("#v-quick").hidden) renderQuick();
-  }, fail));
-  unsubs.push(onSnapshot(col("receipts"), (s) => { receipts = s.docs.map((d) => ({ id: d.id, ...d.data() })); renderHome(); }, fail));
-  unsubs.push(onSnapshot(col("payments"), (s) => { payments = s.docs.map((d) => ({ id: d.id, ...d.data() })); renderHome(); }, fail));
-}
+const groupNames = () => [...new Set(entries().map((e) => (e.group || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "pl"));
 
 /* ---------- widoki ---------- */
-const VIEWS = ["missing", "start", "home", "quick", "edit", "settings"];
 function show(view) {
-  for (const v of VIEWS) $("#v-" + v).hidden = v !== view;
+  for (const v of ["home", "quick", "edit", "settings"]) $("#v-" + v).hidden = v !== view;
   $("#tabs").hidden = !["home", "settings"].includes(view);
   document.querySelectorAll("#tabs button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.view === view)));
+  if (view !== "home") exitSelect();
   window.scrollTo(0, 0);
 }
 $("#tabs").onclick = (e) => {
   const v = e.target.closest("[data-view]")?.dataset.view; if (!v) return;
-  if (v === "settings") renderSettings();
+  if (v === "settings") renderSettings(); else renderHome();
   show(v);
 };
-
-/* ---------- start: utwórz / dołącz ---------- */
-function useHousehold(code) {
-  household = code; LS.set("household", code);
-  if (location.hash) history.replaceState(null, "", location.pathname);
-  receipts = []; payments = [];
-  subscribe(); show("home"); renderHome();
-}
-$("#btn-create").onclick = async () => {
-  const code = newCode();
-  $("#btn-create").disabled = true;
-  household = code;
-  const people = [$("#new-p0").value.trim() || DEFAULT_CONFIG.people[0], $("#new-p1").value.trim() || DEFAULT_CONFIG.people[1]];
-  config = { ...structuredClone(DEFAULT_CONFIG), people };
-  write(setDoc(hhDoc(), { ...config, createdAt: Date.now() }), "#home-notice");
-  useHousehold(code);
-  $("#btn-create").disabled = false;
-};
-$("#btn-join").onclick = async () => {
-  const raw = $("#join-code").value.trim();
-  const code = (raw.match(/dolacz=([a-z0-9]+)/i)?.[1] || raw).toLowerCase();
-  if (code.length < 20) { notice("#start-notice", "To nie wygląda na kod bazy. Kod ma 24 znaki; najprościej otworzyć link od drugiej osoby.", "warn"); return; }
-  $("#btn-join").disabled = true;
-  try {
-    household = code;
-    const s = await getDoc(hhDoc());
-    if (!s.exists()) { notice("#start-notice", "Nie ma bazy o takim kodzie. Sprawdź link.", "bad"); household = null; }
-    else useHousehold(code);
-  } catch (e) {
-    if (e?.code === "unavailable") useHousehold(code); // offline: dołącz, sprawdzi się po połączeniu
-    else { notice("#start-notice", "Nie udało się dołączyć: " + (e?.code || e?.message), "bad"); household = null; }
-  }
-  $("#btn-join").disabled = false;
-};
+function goHome() { show("home"); renderHome(); }
 
 /* ---------- ekran główny ---------- */
+let filter = LS.get("filter") || "open";
+let groupBy = LS.get("groupBy") || "month";
+let selecting = false;
+const selected = new Set();
+
 function renderHome() {
-  const b = balance();
-  if (b === 0) { $("#bal-who").textContent = "Jesteście kwita"; $("#bal-amt").textContent = fmt(0); $("#btn-settle").hidden = true; }
+  const all = entries();
+  const b = balanceOf(all);
+  if (!b) { $("#bal-who").textContent = all.some((e) => !e.settled) ? "Nic do oddania" : "Jesteście kwita"; $("#bal-amt").textContent = fmt(0); }
   else {
-    const debtor = b > 0 ? 1 : 0;
-    $("#bal-who").innerHTML = `<span class="who who-${debtor}">${esc(P(debtor))}</span> oddaje → <span class="who who-${1 - debtor}">${esc(P(1 - debtor))}</span>`;
+    const d = b > 0 ? 1 : 0;
+    $("#bal-who").innerHTML = `<span class="who who-${d}">${esc(P(d))}</span> oddaje → <span class="who who-${1 - d}">${esc(P(1 - d))}</span>`;
     $("#bal-amt").textContent = fmt(Math.abs(b));
-    $("#btn-settle").hidden = !$("#settle").hidden;
   }
-  const entries = [
-    ...receipts.map((r) => ({ k: "r", date: r.date || "", ts: r.createdAt || 0, r })),
-    ...payments.map((p) => ({ k: "p", date: p.date || "", ts: p.createdAt || 0, p })),
-  ].sort((a, c) => c.date.localeCompare(a.date) || c.ts - a.ts);
-  if (!entries.length) {
-    $("#list").innerHTML = `<div class="empty">Nic tu jeszcze nie ma.<br><b>📷 Paragon</b> – zeskanuj i przypisz pozycje.<br><b>+ Kwota</b> – wpisz wydatek bez paragonu.</div>`;
-    return;
+  $("#btn-settle-pick").hidden = !all.some((e) => !e.settled) || selecting;
+  document.querySelectorAll("#f-filter button").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.f === filter)));
+  document.querySelectorAll("#f-group button").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.g === groupBy)));
+  $("#btn-select").textContent = selecting ? "Zakończ" : "Zaznacz";
+  $("#groups-list").innerHTML = groupNames().map((g) => `<option value="${esc(g)}">`).join("");
+
+  const list = all
+    .filter((e) => (filter === "open" ? !e.settled : filter === "done" ? e.settled : true))
+    .sort((a, c) => (c.date || "").localeCompare(a.date || "") || (c.createdAt || 0) - (a.createdAt || 0));
+  if (!list.length) {
+    $("#list").innerHTML = all.length
+      ? `<div class="empty">${filter === "open" ? "Wszystko rozliczone ✓" : "Brak wpisów w tym widoku."}</div>`
+      : `<div class="empty">Nic tu jeszcze nie ma.<br><b>📷 Paragon</b>: zeskanuj i przypisz pozycje.<br><b>+ Kwota</b>: wydatek bez paragonu.</div>`;
+    renderSelbar(); return;
   }
-  const months = new Map();
-  for (const e of entries) { const m = e.date.slice(0, 7); if (!months.has(m)) months.set(m, []); months.get(m).push(e); }
+  const sections = new Map();
+  for (const e of list) {
+    const k = groupBy === "group" ? (e.group || "").trim() : (e.date || "").slice(0, 7);
+    if (!sections.has(k)) sections.set(k, []);
+    sections.get(k).push(e);
+  }
+  let keys = [...sections.keys()];
+  if (groupBy === "group") keys = keys.filter(Boolean).concat(keys.includes("") ? [""] : []);
   let html = "";
-  for (const [m, list] of months) {
-    const name = m ? new Date(m + "-01T12:00:00").toLocaleDateString("pl-PL", { month: "long", year: "numeric" }) : "Bez daty";
-    const spent = list.filter((e) => e.k === "r").reduce((s, e) => s + rTotal(e.r), 0);
-    html += `<div class="month"><div class="month-h"><h2>${esc(name)}</h2><span class="muted num small">wydane ${fmt(spent)}</span></div>`;
-    for (const e of list) {
-      if (e.k === "r") {
-        const r = e.r, o = rOwed(r), other = 1 - r.payer;
-        html += `<button type="button" class="card" data-rid="${esc(r.id)}">
-          <div class="card-top"><strong>${esc(r.store || "Zakupy")}${r.quick ? "" : `<span class="tag">paragon</span>`}</strong><span class="num">${fmt(rTotal(r))}</span></div>
+  for (const k of keys) {
+    const items = sections.get(k);
+    const title = groupBy === "group" ? (k || "Bez grupy")
+      : (k ? new Date(k + "-01T12:00:00").toLocaleDateString("pl-PL", { month: "long", year: "numeric" }) : "Bez daty");
+    const sb = balanceOf(items);
+    const right = selecting
+      ? `<button type="button" class="link" data-selsec="${esc(k)}">Zaznacz wszystkie</button>`
+      : groupBy === "group" ? `<span class="small">${sb ? oweHtml(sb) : ""}</span>`
+      : `<span class="muted num small">wydane ${fmt(items.reduce((s, e) => s + rTotal(e), 0))}</span>`;
+    html += `<div class="month"><div class="month-h"><h2>${esc(title)}</h2>${right}</div>`;
+    for (const r of items) {
+      const o = rOwed(r), other = 1 - r.payer, sel = selected.has(r.id);
+      html += `<div class="card${r.settled ? " done" : ""}${sel ? " sel" : ""}" data-id="${esc(r.id)}" role="button" tabindex="0">
+        ${selecting ? `<span class="tick" aria-hidden="true">${sel ? "✓" : ""}</span>` : ""}
+        <div class="card-body">
+          <div class="card-top"><strong>${esc(r.store || "Zakupy")}${r.group && groupBy !== "group" ? `<span class="tag">${esc(r.group)}</span>` : ""}</strong><span class="num">${fmt(rTotal(r))}</span></div>
           <div class="card-sub"><span>${esc(fmtDate(r.date))} · płacił(a) <span class="who who-${r.payer}">${esc(P(r.payer))}</span></span>
-          <span>${o ? `<span class="who who-${other}">${esc(P(other))}</span> oddaje <span class="num">${fmt(o)}</span>` : "nic do oddania"}</span></div></button>`;
-      } else {
-        const p = e.p;
-        html += `<div class="card pay">
-          <div class="card-top"><strong>Spłata: <span class="who who-${p.from}">${esc(P(p.from))}</span> → <span class="who who-${p.to}">${esc(P(p.to))}</span></strong><span class="num">${fmt(p.g)}</span></div>
-          <div class="card-sub"><span>${esc(fmtDate(p.date))}</span><button type="button" class="btn danger small" data-delpay="${esc(p.id)}">Usuń</button></div></div>`;
-      }
+          <span>${r.settled ? "rozliczone ✓" : o ? `<span class="who who-${other}">${esc(P(other))}</span> oddaje <span class="num">${fmt(o)}</span>` : "nic do oddania"}</span></div>
+        </div></div>`;
     }
     html += `</div>`;
   }
   $("#list").innerHTML = html;
+  renderSelbar();
 }
+$("#f-filter").onclick = (e) => { const f = e.target.closest("[data-f]")?.dataset.f; if (!f) return; filter = f; LS.set("filter", f); renderHome(); };
+$("#f-group").onclick = (e) => { const g = e.target.closest("[data-g]")?.dataset.g; if (!g) return; groupBy = g; LS.set("groupBy", g); renderHome(); };
 $("#list").onclick = (e) => {
-  const del = e.target.closest("[data-delpay]");
-  if (del) {
-    if (del.dataset.armed) write(deleteDoc(doc(col("payments"), del.dataset.delpay)), "#home-notice");
-    else { del.dataset.armed = "1"; del.textContent = "Na pewno?"; }
-    return;
+  const sec = e.target.closest("[data-selsec]");
+  if (sec) {
+    const k = sec.dataset.selsec;
+    sec.closest(".month").querySelectorAll("[data-id]").forEach((c) => selected.add(c.dataset.id));
+    void k; renderHome(); return;
   }
-  const c = e.target.closest("[data-rid]");
-  if (c) { const r = receipts.find((x) => x.id === c.dataset.rid); if (r) (r.quick ? openQuick(r) : openEditor(r)); }
+  const c = e.target.closest("[data-id]"); if (!c) return;
+  const id = c.dataset.id;
+  if (selecting) { selected.has(id) ? selected.delete(id) : selected.add(id); renderHome(); return; }
+  const r = db.entries[id]; if (r) (r.quick ? openQuick(r) : openEditor(r));
 };
-$("#btn-settle").onclick = () => {
-  const b = balance(), debtor = b > 0 ? 1 : 0;
-  $("#settle-txt").innerHTML = `<span class="who who-${debtor}">${esc(P(debtor))}</span> oddał(a):`;
-  $("#settle-amt").value = fmtIn(Math.abs(b));
-  $("#settle").hidden = false; $("#btn-settle").hidden = true;
+$("#list").onkeydown = (e) => { if ((e.key === "Enter" || e.key === " ") && e.target.matches("[data-id]")) { e.preventDefault(); e.target.click(); } };
+
+/* ---------- zaznaczanie: rozlicz / usuń wybrane ---------- */
+function enterSelect(preselectOpen) {
+  selecting = true; selected.clear();
+  if (preselectOpen) { if (filter === "done") { filter = "open"; LS.set("filter", "open"); } entries().filter((e) => !e.settled).forEach((e) => selected.add(e.id)); }
+  renderHome();
+}
+function exitSelect() { if (!selecting) return; selecting = false; selected.clear(); $("#selbar").hidden = true; renderHome(); }
+function renderSelbar() {
+  $("#selbar").hidden = !selecting;
+  if (!selecting) return;
+  const sel = [...selected].map((id) => db.entries[id]).filter(Boolean);
+  $("#sel-count").textContent = `Zaznaczone: ${sel.length}`;
+  $("#sel-owe").innerHTML = sel.length ? oweHtml(balanceOf(sel)) : "Stuknij wpisy, żeby je zaznaczyć";
+  $("#sel-settle").disabled = !sel.some((e) => !e.settled);
+  $("#sel-unsettle").hidden = !sel.some((e) => e.settled);
+  $("#sel-del").disabled = !sel.length;
+  disarm($("#sel-del"));
+}
+$("#btn-select").onclick = () => (selecting ? exitSelect() : enterSelect(false));
+$("#btn-settle-pick").onclick = () => enterSelect(true);
+$("#sel-cancel").onclick = exitSelect;
+$("#sel-settle").onclick = () => {
+  const t = Date.now();
+  for (const id of selected) { const e = db.entries[id]; if (e && !e.settled) { e.settled = true; e.settledAt = t; e.updatedAt = t; } }
+  persist(); const n = selected.size; exitSelect(); notice("#home-notice", `Oznaczono jako rozliczone: ${n}.`);
 };
-$("#settle-cancel").onclick = () => { $("#settle").hidden = true; renderHome(); };
-$("#settle-ok").onclick = () => {
-  const g = parseMoney($("#settle-amt").value); if (g <= 0) return;
-  const from = balance() > 0 ? 1 : 0;
-  write(setDoc(doc(col("payments")), { from, to: 1 - from, g, date: today(), createdAt: Date.now() }), "#home-notice");
-  $("#settle").hidden = true; renderHome();
+$("#sel-unsettle").onclick = () => {
+  const t = Date.now();
+  for (const id of selected) { const e = db.entries[id]; if (e && e.settled) { e.settled = false; delete e.settledAt; e.updatedAt = t; } }
+  persist(); exitSelect(); notice("#home-notice", "Cofnięto rozliczenie zaznaczonych wpisów.");
+};
+$("#sel-del").onclick = () => {
+  const b = $("#sel-del");
+  if (!armed(b, `Usunąć ${selected.size}? Stuknij ponownie`)) return;
+  const n = selected.size; removeEntries([...selected]); exitSelect(); notice("#home-notice", `Usunięto wpisy: ${n}.`);
 };
 $("#btn-new").onclick = () => openEditor(null);
 $("#btn-quick").onclick = () => openQuick(null);
 
 /* ---------- kwota bez paragonu ---------- */
+let quick = null;
 function chipsHtml(sel, attr) {
-  return config.options.map((o) => `<button type="button" class="chip ${optClass(o)}" ${attr}="${esc(o.id)}" aria-pressed="${o.id === sel}">${esc(optLabel(o))}</button>`).join("");
+  return cfg().options.map((o) => `<button type="button" class="chip ${optClass(o)}" ${attr}="${esc(o.id)}" aria-pressed="${o.id === sel}">${esc(optLabel(o))}</button>`).join("");
 }
 function openQuick(r) {
   quick = r
-    ? { id: r.id, createdAt: r.createdAt, payer: r.payer, desc: r.store || "", g: rTotal(r), opt: r.items?.[0]?.opt || "shared", date: r.date || today() }
-    : { payer: 0, desc: "", g: 0, opt: "shared", date: today() };
+    ? { ...structuredClone(r), g: rTotal(r), opt: r.items?.[0]?.opt || "shared", desc: r.store || "" }
+    : { id: null, payer: 0, desc: "", g: 0, opt: "shared", date: today(), group: "", settled: false };
   $("#q-title").textContent = r ? "Edytuj kwotę" : "Kwota bez paragonu";
   $("#q-amt").value = quick.g ? fmtIn(quick.g) : "";
-  $("#q-desc").value = quick.desc; $("#q-date").value = quick.date;
-  $("#q-del-wrap").hidden = !quick.id; $("#q-del").textContent = "Usuń wpis"; delete $("#q-del").dataset.armed;
+  $("#q-desc").value = quick.desc; $("#q-date").value = quick.date || today();
+  $("#q-group").value = quick.group || ""; $("#q-settled").checked = !!quick.settled;
+  $("#q-del-wrap").hidden = !quick.id; disarm($("#q-del"));
   notice("#q-check", "");
   renderQuick(); show("quick");
   if (!r) setTimeout(() => $("#q-amt").focus(), 50);
@@ -231,33 +232,35 @@ function renderQuickOwe() {
 $("#q-payer").onclick = (e) => { const b = e.target.closest("[data-payer]"); if (!b) return; quick.payer = +b.dataset.payer; renderQuick(); };
 $("#q-opts").onclick = (e) => { const b = e.target.closest("[data-opt]"); if (!b) return; quick.opt = b.dataset.opt; renderQuick(); };
 $("#q-amt").oninput = (e) => { quick.g = parseMoney(e.target.value); renderQuickOwe(); };
-$("#q-desc").oninput = (e) => { quick.desc = e.target.value; };
-$("#q-date").oninput = (e) => { quick.date = e.target.value; };
-$("#q-cancel").onclick = () => { quick = null; show("home"); renderHome(); };
+$("#q-cancel").onclick = () => { quick = null; goHome(); };
 $("#q-save").onclick = () => {
-  if (!quick.g) { notice("#q-check", "Wpisz kwotę.", "bad"); return; }
-  const desc = quick.desc.trim() || "Wydatek";
-  const body = { quick: true, payer: quick.payer, store: desc, date: quick.date || today(), items: [{ name: desc, g: quick.g, opt: quick.opt }], createdAt: quick.createdAt || Date.now() };
-  write(setDoc(quick.id ? doc(col("receipts"), quick.id) : doc(col("receipts")), body), "#home-notice");
-  quick = null; show("home"); renderHome();
+  const g = parseMoney($("#q-amt").value);
+  if (!g) { notice("#q-check", "Wpisz kwotę.", "bad"); return; }
+  const desc = $("#q-desc").value.trim() || "Wydatek";
+  const settled = $("#q-settled").checked;
+  putEntry({
+    id: quick.id || newId(), quick: true, payer: quick.payer, store: desc, date: $("#q-date").value || today(),
+    group: $("#q-group").value.trim(), items: [{ name: desc, g, opt: quick.opt }],
+    settled, ...(settled ? { settledAt: quick.settledAt || Date.now() } : {}), createdAt: quick.createdAt || Date.now(),
+  });
+  quick = null; goHome();
 };
 $("#q-del").onclick = () => {
-  const b = $("#q-del");
-  if (!b.dataset.armed) { b.dataset.armed = "1"; b.textContent = "Na pewno usunąć? Stuknij jeszcze raz"; return; }
-  write(deleteDoc(doc(col("receipts"), quick.id)), "#home-notice");
-  quick = null; show("home"); renderHome();
+  if (!armed($("#q-del"), "Na pewno usunąć? Stuknij jeszcze raz")) return;
+  removeEntries([quick.id]); quick = null; goHome();
 };
 
 /* ---------- paragon ---------- */
+let draft = null;
 function openEditor(r) {
-  draft = r ? structuredClone({ ...r }) : { payer: 0, store: "", date: today(), items: [], scannedTotal: null };
+  draft = r ? structuredClone(r) : { id: null, payer: 0, store: "", date: today(), group: "", items: [], scannedTotal: null, settled: false };
   draft.items = draft.items || [];
   draft.defOpt = "shared";
   $("#ed-store").value = draft.store || ""; $("#ed-date").value = draft.date || today();
-  $("#ed-del-wrap").hidden = !draft.id; $("#btn-del").textContent = "Usuń paragon"; delete $("#btn-del").dataset.armed;
-  $("#scan-status").textContent = LS.get("apiKey")
-    ? "Zrób zdjęcie paragonu, a pozycje wpiszą się same. Możesz też dodać je ręcznie."
-    : "Żeby skanować, dodaj klucz API w Ustawieniach. Pozycje możesz też wpisać ręcznie.";
+  $("#ed-group").value = draft.group || ""; $("#ed-settled").checked = !!draft.settled;
+  $("#ed-del-wrap").hidden = !draft.id; disarm($("#btn-del"));
+  $("#paste-box").hidden = true; $("#raw-box").hidden = true;
+  $("#scan-status").textContent = "Paragon czyta telefon, zdjęcie nigdzie nie jest wysyłane. Pozycje możesz też dodać ręcznie.";
   if (!draft.items.length) draft.items.push({ name: "", g: 0, opt: "shared" });
   renderEditor(); show("edit");
 }
@@ -285,7 +288,7 @@ function renderTotals() {
   for (const it of draft.items) { if (!it.g) continue; const o = optById(it.opt); groups.set(o, (groups.get(o) || 0) + it.g); }
   $("#groups").innerHTML = [...groups].map(([o, g]) => `<span><b style="color:var(--${optClass(o).slice(2)})">${esc(optLabel(o))}</b> <span class="num">${fmt(g)}</span></span>`).join("");
   if (draft.scannedTotal != null && draft.scannedTotal !== total)
-    $("#ed-check").innerHTML = `<div class="notice warn">SUMA PLN na paragonie: <span class="num">${fmt(draft.scannedTotal)}</span>, a pozycje dają <span class="num">${fmt(total)}</span>. Sprawdź ceny.</div>`;
+    $("#ed-check").innerHTML = `<div class="notice warn">SUMA PLN na paragonie: <span class="num">${fmt(draft.scannedTotal)}</span>, a pozycje dają <span class="num">${fmt(total)}</span>. Różnica <span class="num">${fmt(Math.abs(draft.scannedTotal - total))}</span>: sprawdź ceny albo dodaj brakującą pozycję.</div>`;
   else if (draft.scannedTotal != null) $("#ed-check").innerHTML = `<div class="notice">Zgadza się z SUMA PLN na paragonie ✓</div>`;
   else $("#ed-check").innerHTML = "";
 }
@@ -303,121 +306,120 @@ $("#items").oninput = (e) => {
   else if (e.target.classList.contains("it-price")) { it.g = parseMoney(e.target.value); renderTotals(); }
 };
 $("#btn-add-item").onclick = () => { draft.items.push({ name: "", g: 0, opt: draft.defOpt || "shared" }); renderEditor(); $("#it-name-" + (draft.items.length - 1))?.focus(); };
-$("#ed-store").oninput = (e) => { draft.store = e.target.value; };
-$("#ed-date").oninput = (e) => { draft.date = e.target.value; };
-$("#btn-cancel").onclick = () => { scanCtl?.abort(); draft = null; show("home"); renderHome(); };
+$("#btn-cancel").onclick = () => { stopScan(); draft = null; goHome(); };
 $("#btn-save").onclick = () => {
   const items = draft.items.filter((it) => it.g).map((it) => ({ name: (it.name || "").trim() || "Pozycja", g: it.g, opt: it.opt }));
   if (!items.length) { $("#ed-check").innerHTML = `<div class="notice bad">Dodaj przynajmniej jedną pozycję z ceną.</div>`; return; }
-  const body = { payer: draft.payer, store: (draft.store || "").trim(), date: draft.date || today(), items, scannedTotal: draft.scannedTotal ?? null, createdAt: draft.createdAt || Date.now() };
-  scanCtl?.abort();
-  write(setDoc(draft.id ? doc(col("receipts"), draft.id) : doc(col("receipts")), body), "#home-notice");
-  draft = null; show("home"); renderHome();
+  stopScan();
+  const settled = $("#ed-settled").checked;
+  putEntry({
+    id: draft.id || newId(), payer: draft.payer, store: $("#ed-store").value.trim(), date: $("#ed-date").value || today(),
+    group: $("#ed-group").value.trim(), items, scannedTotal: draft.scannedTotal ?? null,
+    settled, ...(settled ? { settledAt: draft.settledAt || Date.now() } : {}), createdAt: draft.createdAt || Date.now(),
+  });
+  draft = null; goHome();
 };
 $("#btn-del").onclick = () => {
-  const b = $("#btn-del");
-  if (!b.dataset.armed) { b.dataset.armed = "1"; b.textContent = "Na pewno usunąć? Stuknij jeszcze raz"; return; }
-  write(deleteDoc(doc(col("receipts"), draft.id)), "#home-notice");
-  draft = null; show("home"); renderHome();
+  if (!armed($("#btn-del"), "Na pewno usunąć? Stuknij jeszcze raz")) return;
+  removeEntries([draft.id]); draft = null; goHome();
 };
 
-/* ---------- skanowanie (Claude API) ---------- */
-const SCAN_PROMPT = `Na zdjęciu jest polski paragon fiskalny. Odczytaj kupione pozycje.
-Zwróć wyłącznie JSON w tym kształcie, bez żadnego innego tekstu:
-{"store": "nazwa sklepu albo null", "date": "RRRR-MM-DD albo null", "total": 123.45, "items": [{"name": "Mleko UHT 3,2% 1L", "price": 3.49}]}
-Zasady:
-- price to końcowa kwota za pozycję w złotych (ilość × cena jednostkowa), po odjęciu rabatów. Linie typu RABAT, OPUST, PROMOCJA odejmij od pozycji nad nimi, nie dodawaj ich osobno.
-- Pomiń linie PTU, SPRZEDAŻ OPODATKOWANA, SUMA, płatność kartą/gotówką, resztę, numery NIP.
-- Kaucję za butelki zostaw jako osobną pozycję.
-- Nazwy zapisz czytelnie po polsku (rozwiń oczywiste skróty, zwykła wielkość liter).
-- total to kwota SUMA PLN z paragonu albo null.`;
-
-async function shrinkImage(file) {
-  // Zdjęcia z telefonu mają po kilka MB; zmniejszamy dłuższy bok do 2000 px (paragon dalej czytelny).
+/* ---------- odczyt paragonu w telefonie (Tesseract.js, pliki w vendor/) ---------- */
+let ocrWorker = null, ocrProgress = () => {}, scanToken = 0;
+function loadScript(src) {
+  return new Promise((res, rej) => { const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = () => rej(new Error("Nie udało się wczytać " + src)); document.head.append(s); });
+}
+async function getWorker() {
+  if (ocrWorker) return ocrWorker;
+  if (!window.Tesseract) await loadScript("vendor/tesseract/tesseract.min.js");
+  const base = new URL("vendor/tesseract/", location.href).href;
+  const w = await window.Tesseract.createWorker("pol", 1, {
+    workerPath: base + "worker.min.js", corePath: base.replace(/\/$/, ""), langPath: base + "lang",
+    workerBlobURL: false, logger: (m) => ocrProgress(m),
+  });
+  await w.setParameters({ tessedit_pageseg_mode: "4", preserve_interword_spaces: "1" });
+  ocrWorker = w;
+  return w;
+}
+async function prepImage(file) {
+  // Skala szarości + rozciągnięcie kontrastu: Tesseract lepiej czyta wyblakły druk termiczny.
   const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
-  const scale = Math.min(1, 2000 / Math.max(bmp.width, bmp.height));
+  let scale = Math.min(2.5, 1600 / bmp.width);
+  if (bmp.width * bmp.height * scale * scale > 12e6) scale = Math.sqrt(12e6 / (bmp.width * bmp.height));
   const c = document.createElement("canvas");
   c.width = Math.round(bmp.width * scale); c.height = Math.round(bmp.height * scale);
-  c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
-  const url = c.toDataURL("image/jpeg", 0.85);
-  return url.slice(url.indexOf(",") + 1);
+  const ctx = c.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(bmp, 0, 0, c.width, c.height);
+  const img = ctx.getImageData(0, 0, c.width, c.height), d = img.data;
+  const hist = new Uint32Array(256);
+  for (let i = 0; i < d.length; i += 4) { const y = (d[i] * 299 + d[i + 1] * 587 + d[i + 2] * 114) / 1000 | 0; d[i] = y; hist[y]++; }
+  const n = d.length / 4; let lo = 0, hi = 255, acc = 0;
+  while (lo < 255 && (acc += hist[lo]) < n * 0.02) lo++;
+  acc = 0; while (hi > 0 && (acc += hist[hi]) < n * 0.02) hi--;
+  const span = Math.max(1, hi - lo);
+  for (let i = 0; i < d.length; i += 4) { const v = Math.max(0, Math.min(255, (d[i] - lo) * 255 / span)); d[i] = d[i + 1] = d[i + 2] = v; }
+  ctx.putImageData(img, 0, 0);
+  return c;
 }
-function parseJson(text) {
-  try { return JSON.parse(text); } catch { /* dalej */ }
-  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (fence) { try { return JSON.parse(fence[1]); } catch { /* dalej */ } }
-  const a = text.indexOf("{"), b = text.lastIndexOf("}");
-  if (a >= 0 && b > a) return JSON.parse(text.slice(a, b + 1));
-  throw new Error("brak JSON");
+function applyParsed(text) {
+  const res = parseReceipt(text);
+  $("#raw-text").textContent = text; $("#raw-box").hidden = false;
+  if (!res.items.length) { $("#scan-status").textContent = "Nie rozpoznałem pozycji. Zrób wyraźniejsze zdjęcie (płasko, dobre światło, cały paragon) albo wpisz pozycje ręcznie."; return; }
+  const parsed = res.items.map((x) => ({ name: x.name, g: x.g, opt: draft.defOpt || "shared" }));
+  draft.items = draft.items.filter((it) => it.g || it.name).concat(parsed);
+  if (res.store && !$("#ed-store").value.trim()) $("#ed-store").value = res.store;
+  if (res.date) $("#ed-date").value = res.date;
+  draft.scannedTotal = res.total;
+  $("#scan-status").textContent = `Rozpoznano ${parsed.length} pozycji. Sprawdź nazwy i ceny, potem przypisz je poniżej.`;
+  renderEditor();
+}
+function stopScan() {
+  scanToken++;
+  if (ocrWorker && !$("#btn-scan-stop").hidden) { ocrWorker.terminate(); ocrWorker = null; }
+  $("#btn-scan").disabled = $("#btn-gallery").disabled = false; $("#btn-scan-stop").hidden = true;
 }
 async function scan(file) {
-  const apiKey = LS.get("apiKey");
-  if (!apiKey) { $("#scan-status").textContent = "Najpierw dodaj klucz API w Ustawieniach."; return; }
-  if (!navigator.onLine) { $("#scan-status").textContent = "Skanowanie wymaga internetu. Pozycje możesz wpisać ręcznie."; return; }
-  scanCtl = new AbortController();
+  const token = ++scanToken;
   $("#btn-scan").disabled = $("#btn-gallery").disabled = true; $("#btn-scan-stop").hidden = false;
-  $("#scan-status").textContent = "Czytam paragon… zwykle 10–40 sekund.";
+  $("#scan-status").textContent = "Przygotowuję zdjęcie…";
+  ocrProgress = (m) => {
+    if (token !== scanToken) return;
+    const p = m.progress ? ` ${Math.round(m.progress * 100)}%` : "";
+    $("#scan-status").textContent = m.status === "recognizing text" ? `Czytam paragon…${p}`
+      : `Przygotowuję odczyt (pierwszy raz trwa dłużej)…${p}`;
+  };
   try {
-    const data = await shrinkImage(file);
-    const { default: Anthropic } = await import(ANTHROPIC_SDK);
-    const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true });
-    const msg = await client.beta.messages.create({
-      model: MODEL,
-      max_tokens: 16000,
-      output_config: { effort: "low" },
-      betas: ["server-side-fallback-2026-07-01"],
-      fallbacks: "default",
-      messages: [{ role: "user", content: [
-        { type: "image", source: { type: "base64", media_type: "image/jpeg", data } },
-        { type: "text", text: SCAN_PROMPT },
-      ] }],
-    }, { signal: scanCtl.signal });
-    if (msg.stop_reason === "refusal") throw { code: "refusal" };
-    const text = msg.content.filter((b) => b.type === "text").map((b) => b.text).join("");
-    const res = parseJson(text);
-    const parsed = (Array.isArray(res?.items) ? res.items : [])
-      .map((x) => ({ name: String(x?.name ?? "").trim(), g: Math.round(Number(x?.price) * 100) || 0, opt: draft.defOpt || "shared" }))
-      .filter((x) => x.g);
-    if (!parsed.length) throw { code: "empty" };
-    draft.items = draft.items.filter((it) => it.g || it.name).concat(parsed);
-    if (res.store && !draft.store) { draft.store = String(res.store); $("#ed-store").value = draft.store; }
-    if (/^\d{4}-\d{2}-\d{2}$/.test(res.date || "")) { draft.date = res.date; $("#ed-date").value = res.date; }
-    draft.scannedTotal = res.total != null && Number.isFinite(Number(res.total)) ? Math.round(Number(res.total) * 100) : null;
-    $("#scan-status").textContent = `Wczytano ${parsed.length} pozycji. Przypisz je poniżej.`;
-    renderEditor();
+    const canvas = await prepImage(file);
+    const w = await getWorker();
+    if (token !== scanToken) return;
+    const { data } = await w.recognize(canvas);
+    if (token !== scanToken || !draft) return;
+    applyParsed(data.text || "");
   } catch (err) {
-    if (!draft) return;
-    const s = err?.status;
-    let m = "Coś poszło nie tak przy skanowaniu. Spróbuj ponownie albo wpisz pozycje ręcznie.";
-    if (err?.name === "AbortError" || err?.constructor?.name === "APIUserAbortError") m = "Przerwano.";
-    else if (err?.code === "empty") m = "Nie znalazłem pozycji na zdjęciu. Zrób wyraźniejsze zdjęcie, z całym paragonem w kadrze.";
-    else if (err?.code === "refusal") m = "Claude odmówił odczytania tego zdjęcia. Spróbuj innego zdjęcia.";
-    else if (s === 401) m = "Klucz API jest nieprawidłowy. Popraw go w Ustawieniach.";
-    else if (s === 400 && /credit/i.test(err?.message || "")) m = "Brak środków na koncie Anthropic. Doładuj je na console.anthropic.com.";
-    else if (s === 429) m = "Za dużo skanów naraz. Spróbuj za minutę.";
-    else if (s >= 500) m = "Serwer Claude jest chwilowo przeciążony. Spróbuj za chwilę.";
-    else if (err?.message === "brak JSON" || err instanceof SyntaxError) m = "Nie udało się odczytać odpowiedzi. Spróbuj jeszcze raz.";
-    else if (!navigator.onLine) m = "Brak internetu.";
-    $("#scan-status").textContent = m;
+    if (token !== scanToken) return;
+    $("#scan-status").textContent = "Nie udało się odczytać zdjęcia (" + (err?.message || err) + "). Spróbuj ponownie albo wpisz pozycje ręcznie.";
   } finally {
-    $("#btn-scan").disabled = $("#btn-gallery").disabled = false; $("#btn-scan-stop").hidden = true;
+    if (token === scanToken) { $("#btn-scan").disabled = $("#btn-gallery").disabled = false; $("#btn-scan-stop").hidden = true; }
   }
 }
 $("#btn-scan").onclick = () => $("#scan-file").click();
 $("#btn-gallery").onclick = () => $("#scan-gallery").click();
-$("#btn-scan-stop").onclick = () => scanCtl?.abort();
+$("#btn-scan-stop").onclick = () => { stopScan(); $("#scan-status").textContent = "Przerwano."; };
 for (const id of ["#scan-file", "#scan-gallery"]) {
   $(id).onchange = (e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) scan(f); };
 }
+$("#btn-paste").onclick = () => { $("#paste-box").hidden = !$("#paste-box").hidden; if (!$("#paste-box").hidden) $("#paste-text").focus(); };
+$("#btn-paste-go").onclick = () => { const t = $("#paste-text").value; if (t.trim()) { applyParsed(t); $("#paste-box").hidden = true; $("#paste-text").value = ""; } };
 
 /* ---------- ustawienia ---------- */
 let setDraft = null;
 function renderSettings() {
-  setDraft = structuredClone(config);
+  setDraft = structuredClone(cfg());
   $("#set-p0").value = setDraft.people[0]; $("#set-p1").value = setDraft.people[1];
-  $("#hh-code").textContent = joinLink();
-  $("#api-key").value = LS.get("apiKey") ? "••••••••••••" : "";
-  notice("#set-notice", ""); notice("#key-notice", "");
+  notice("#set-notice", ""); notice("#sync-notice", "");
+  const last = +LS.get("lastBackup");
+  $("#backup-info").textContent = last ? `Ostatni zapisany plik: ${new Date(last).toLocaleString("pl-PL")}` : "Nie zapisano jeszcze żadnej kopii.";
+  disarm($("#btn-wipe"));
   renderOpts();
 }
 function renderOpts() {
@@ -438,42 +440,96 @@ $("#opt-custom").oninput = (e) => {
   else o.share = Math.max(0, Math.min(100, parseInt(e.target.value, 10) || 0));
 };
 $("#opt-custom").onclick = (e) => { const b = e.target.closest("[data-delopt]"); if (!b) return; setDraft.options.splice(+b.closest(".opt-row").dataset.i, 1); renderOpts(); };
-$("#btn-add-opt").onclick = () => { setDraft.options.push({ id: "o" + Date.now().toString(36), label: "", share: 50 }); renderOpts(); };
+$("#btn-add-opt").onclick = () => { setDraft.options.push({ id: "o" + newId(), label: "", share: 50 }); renderOpts(); };
 $("#btn-save-set").onclick = () => {
-  setDraft.people = setDraft.people.map((p, i) => p.trim() || DEFAULT_CONFIG.people[i]);
-  setDraft.options = setDraft.options.filter((o) => o.fixed || o.label.trim()).map((o) => (o.fixed ? o : { ...o, label: o.label.trim() }));
-  write(setDoc(hhDoc(), { people: setDraft.people, options: setDraft.options }, { merge: true }), "#set-notice");
-  notice("#set-notice", "Zapisano.");
+  db.config = {
+    people: setDraft.people.map((p, i) => p.trim() || DEFAULT_CONFIG.people[i]),
+    options: setDraft.options.filter((o) => o.fixed || o.label.trim()).map((o) => (o.fixed ? o : { ...o, label: o.label.trim() })),
+    updatedAt: Date.now(),
+  };
+  if (persist()) notice("#set-notice", "Zapisano.");
+  renderSettings(); notice("#set-notice", "Zapisano.");
 };
-$("#btn-share").onclick = async () => {
-  try { await navigator.share({ title: "Rozliczenia", text: "Dołącz do naszych wspólnych rozliczeń:", url: joinLink() }); }
-  catch (e) { if (e?.name !== "AbortError") $("#btn-copy").click(); }
-};
-$("#btn-copy").onclick = async () => {
-  try { await navigator.clipboard.writeText(joinLink()); notice("#set-notice", "Link skopiowany."); }
-  catch { const r = document.createRange(); r.selectNodeContents($("#hh-code")); getSelection().removeAllRanges(); getSelection().addRange(r); notice("#set-notice", "Zaznaczyłem link – skopiuj go ręcznie."); }
-};
-$("#btn-save-key").onclick = () => {
-  const v = $("#api-key").value.trim();
-  if (v.startsWith("•")) { notice("#key-notice", "Klucz jest już zapisany."); return; }
-  if (!v.startsWith("sk-ant-")) { notice("#key-notice", "Klucz API zaczyna się od sk-ant-. Skopiuj go z console.anthropic.com.", "warn"); return; }
-  LS.set("apiKey", v); $("#api-key").value = "••••••••••••"; notice("#key-notice", "Klucz zapisany w tym telefonie.");
-};
-$("#btn-clear-key").onclick = () => { LS.del("apiKey"); $("#api-key").value = ""; notice("#key-notice", "Klucz usunięty z tego telefonu."); };
-$("#btn-leave").onclick = () => {
-  const b = $("#btn-leave");
-  if (!b.dataset.armed) { b.dataset.armed = "1"; b.textContent = "Na pewno? Stuknij jeszcze raz"; return; }
-  unsubs.forEach((u) => u()); unsubs = []; LS.del("household"); household = null;
-  b.textContent = "Odłącz od bazy"; delete b.dataset.armed; show("start");
+$("#btn-wipe").onclick = () => {
+  if (!armed($("#btn-wipe"), "Na pewno? Stuknij jeszcze raz")) return;
+  db = { config: structuredClone(DEFAULT_CONFIG), entries: {}, deleted: {} }; persist();
+  renderSettings(); notice("#sync-notice", "Usunięto wszystkie dane z tego telefonu.");
 };
 
-/* ---------- online / offline ---------- */
-function renderStatus() {
-  const st = $("#status");
-  st.textContent = navigator.onLine ? "" : "offline – zapisy wyślą się po połączeniu";
-  st.classList.toggle("off", !navigator.onLine);
+/* ---------- plik: eksport, import, łączenie, szyfrowanie ---------- */
+const te = new TextEncoder(), td = new TextDecoder();
+function toB64(buf) { const b = new Uint8Array(buf); let s = ""; for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000)); return btoa(s); }
+const fromB64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+async function deriveKey(pw, salt) {
+  const base = await crypto.subtle.importKey("raw", te.encode(pw), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey({ name: "PBKDF2", salt, iterations: 250000, hash: "SHA-256" }, base, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
 }
-addEventListener("online", renderStatus); addEventListener("offline", renderStatus);
+async function encrypt(text, pw) {
+  const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, await deriveKey(pw, salt), te.encode(text));
+  return { salt: toB64(salt), iv: toB64(iv), ct: toB64(ct) };
+}
+async function decrypt(o, pw) {
+  const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: fromB64(o.iv) }, await deriveKey(pw, fromB64(o.salt)), fromB64(o.ct));
+  return td.decode(pt);
+}
+$("#btn-export").onclick = async () => {
+  const pw = $("#sync-pw").value;
+  const b = $("#btn-export"); b.disabled = true;
+  try {
+    const body = pw ? { app: "rozliczenia", v: 1, enc: true, ...(await encrypt(JSON.stringify(db), pw)) } : { app: "rozliczenia", v: 1, enc: false, data: db };
+    const name = `rozliczenia-${today()}.json`;
+    const file = new File([JSON.stringify(body)], name, { type: "application/json" });
+    let shared = false;
+    if (navigator.canShare?.({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: "Rozliczenia" }); shared = true; }
+      catch (e) { if (e?.name === "AbortError") { b.disabled = false; return; } }
+    }
+    if (!shared) {
+      const a = document.createElement("a"); a.href = URL.createObjectURL(file); a.download = name;
+      document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+    }
+    LS.set("lastBackup", String(Date.now()));
+    notice("#sync-notice", pw ? "Plik zaszyfrowany i gotowy. Na drugim telefonie wpisz to samo hasło przed wczytaniem." : "Plik gotowy. Uwaga: bez hasła każdy, kto dostanie plik, zobaczy wydatki.", pw ? "" : "warn");
+    renderSettings();
+  } catch (e) { notice("#sync-notice", "Nie udało się zapisać pliku: " + (e?.message || e), "bad"); }
+  b.disabled = false;
+};
+$("#btn-import").onclick = () => $("#import-file").click();
+$("#import-file").onchange = async (e) => {
+  const f = e.target.files?.[0]; e.target.value = ""; if (!f) return;
+  try {
+    const body = JSON.parse(await f.text());
+    if (body?.app !== "rozliczenia") throw new Error("To nie jest plik z Rozliczeń.");
+    let data = body.data;
+    if (body.enc) {
+      const pw = $("#sync-pw").value;
+      if (!pw) { notice("#sync-notice", "Plik jest zaszyfrowany. Wpisz hasło w polu powyżej i wczytaj go ponownie.", "warn"); return; }
+      try { data = JSON.parse(await decrypt(body, pw)); }
+      catch { notice("#sync-notice", "Złe hasło do pliku.", "bad"); return; }
+    }
+    const r = merge(data);
+    persist();
+    notice("#sync-notice", `Wczytano. Nowe: ${r.added}, zaktualizowane: ${r.updated}, usunięte: ${r.removed}.`);
+    renderSettings(); notice("#sync-notice", `Wczytano. Nowe: ${r.added}, zaktualizowane: ${r.updated}, usunięte: ${r.removed}.`);
+  } catch (err) { notice("#sync-notice", "Nie udało się wczytać pliku: " + (err?.message || err), "bad"); }
+};
+function merge(inc) {
+  // Łączenie dwóch telefonów: dla każdego wpisu wygrywa nowsza zmiana; usunięcia też się przenoszą.
+  let added = 0, updated = 0, removed = 0;
+  for (const [id, t] of Object.entries(inc.deleted || {})) db.deleted[id] = Math.max(db.deleted[id] || 0, t);
+  for (const [id, e] of Object.entries(inc.entries || {})) {
+    if ((db.deleted[id] || 0) >= (e.updatedAt || 0)) continue;
+    const cur = db.entries[id];
+    if (!cur) { db.entries[id] = e; added++; }
+    else if ((e.updatedAt || 0) > (cur.updatedAt || 0)) { db.entries[id] = e; updated++; }
+  }
+  for (const [id, e] of Object.entries(db.entries)) {
+    if ((db.deleted[id] || 0) >= (e.updatedAt || 0)) { delete db.entries[id]; removed++; }
+  }
+  if (inc.config && (inc.config.updatedAt || 0) > (db.config.updatedAt || 0)) db.config = inc.config;
+  return { added, updated, removed };
+}
 
 /* ---------- aktualizacje aplikacji (service worker) ---------- */
 if ("serviceWorker" in navigator) {
@@ -490,26 +546,6 @@ if ("serviceWorker" in navigator) {
 }
 
 /* ---------- start ---------- */
-(async () => {
-  renderStatus();
-  const hashCode = location.hash.match(/dolacz=([a-z0-9]+)/i)?.[1]?.toLowerCase();
-  if (!firebaseConfig?.apiKey || firebaseConfig.apiKey.startsWith("WKLEJ")) { show("missing"); return; }
-  const app = initializeApp(firebaseConfig);
-  fs = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) });
-  const auth = getAuth(app);
-  try {
-    const user = await new Promise((res) => { const un = onAuthStateChanged(auth, (u) => { un(); res(u); }); });
-    if (!user) await signInAnonymously(auth);
-  } catch (e) {
-    show("start");
-    notice("#start-notice", "Nie udało się połączyć z bazą (" + (e?.code || e?.message) + "). Sprawdź internet; przy pierwszym uruchomieniu jest potrzebny.", "bad");
-    return;
-  }
-  const saved = LS.get("household");
-  if (hashCode && hashCode !== saved) {
-    show("start"); $("#join-code").value = hashCode;
-    notice("#start-notice", saved ? "Ten telefon jest podłączony do innej bazy. Stuknij Dołącz, żeby przełączyć się na bazę z linku." : "Stuknij Dołącz, żeby połączyć się ze wspólną bazą.");
-    return;
-  }
-  if (saved) useHousehold(saved); else show("start");
-})();
+// Przy pierwszym uruchomieniu od razu prosimy o imiona.
+if (!entries().length && !cfg().updatedAt) { renderSettings(); show("settings"); notice("#set-notice", "Witaj! Wpisz imiona i stuknij „Zapisz ustawienia”."); }
+else goHome();
