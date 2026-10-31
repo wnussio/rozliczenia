@@ -5,10 +5,10 @@ const L = "A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż";
 const LETTERS = new RegExp(`[${L}]`, "g");
 const AMOUNT = /-?\d{1,5}[.,]\d{2}(?![\d%])/g;
 // Koniec listy zakupów: podsumowania podatku, sumy, płatności.
-const STOP = /SPRZEDA|SPRZ\.?\s*OPOD|OPODAT|\bP\s?T\s?U\b|\bS?UMA\s*(PLN|PTU|:)|\bSUMA\b|\bRAZEM\b|DO\s*ZAP|\bKWOTA\s+[A-G]\b|ROZLICZ|P[ŁL]ATNO|P[ŁL]ATN\.|GOT[ÓO]W|\bKARTA\b|\bKARTY\b|RESZTA|NIEFISK|\bOG[ÓO][ŁL]EM\b|PODSUMOW/i;
-const DISCOUNT = /RABAT|OPUST|PROMOC|OBNI[ŻZ]K|UPUST|ZNI[ŻZ]K|KUPON|VOUCHER|GRATIS|LIDL\s*PLUS/i;
+const STOP = /SPRZEDA|^\W?[S59][pP]\.?\s?[O0o][pP]\b|\bSP\.\s?(OP|ZW)\b|PODSU[MN]|SUBTOTAL|\bRAZEM\b|SPRZ\.?\s*OPOD|OPODAT|\bP\s?T\s?U\b|^P[IT1l][UJ]\b|\bS?UMA\s*(PLN|PTU|:)|\bSUMA\b|\bRAZEM\b|DO\s*ZAP|\bKWOTA\s+[A-G]\b|ROZLICZ|P[ŁL]ATNO|P[ŁL]ATN\.|GOT[ÓO]W|\bKARTA\b|\bKARTY\b|RESZTA|NIEFISK|\bOG[ÓO][ŁL]EM\b|PODSUMOW/i;
+const DISCOUNT = /RABA[TLI1]\b|RABAT|OPUST|PROMOC|OBNI[ŻZ]K|UPUST|ZNI[ŻZ]K|KUPON|VOUCHER|GRATIS|LIDL\s*PLUS/i;
 const DISCOUNT_SUMMARY = /[ŁL][ĄA]CZN|SUMA|RAZEM|W\s*TYM|OSZCZ[ĘE]DZ|ZAOSZCZ/i; // „Opust łącznie”, „Suma rabatów”
-const QTY_G = /(?:^|\s)\d+(?:[.,]\d+)?\s*(?:szt\.?|kg|op\.?|l)?\s*[x×*][:.]?\s*-?\d{1,5}[.,]\d{1,2}(?!\d)/gi;
+const QTY_G = /(?:^|[\s.])\d+(?:[.,]\d+)?\s*(?:sz[tl1]\.?|kg|op\.?|l)?\s*[x×*][:.]?\s*-?\d{1,5}[.,]\d{1,2}(?!\d)/gi;
 // pozycja ostatniego „ilość × cena” w linii (pierwsze bywa częścią nazwy, np. „Woda 6x1,5L”)
 const qtyPos = (l) => { let pos = -1; for (const m of l.matchAll(QTY_G)) pos = m.index; return pos; };
 const UNIT_TOKENS = /\b(?:szt|kg|op|x|l|[A-G])\b\.?/gi;
@@ -44,12 +44,14 @@ function normalize(line) {
   l = l.replace(/(\d[.,]\d{2})([4805])\W{0,2}$/, (m, a, d) => `${a} ${{ 4: "A", 8: "B", 0: "C", 5: "C" }[d]}`);
   l = l.replace(/(\d)([.,])\s(\d{2})(?![\d%-])/g, "$1$2$3"); // „3, 00” → „3,00”, ale nie „122, 63-700” (adres)
   l = l.replace(/(\d)\s([.,])(\d{2})(?![\d%])/g, "$1$2$3"); // „210 ,97” (duża czcionka sumy)
+  l = l.replace(/([x×*]\s*\d{1,5}[.,]\d{2})\s*[-=:~]\s*(\d)/gi, "$1 $2"); // „1* 10,00 - 10,00 B” („=” odczytane jako „-”)
   l = l.replace(/(^|\s)-\s(\d)/g, "$1-$2");
   return l;
 }
 
 function cleanName(s) {
-  let n = s.replace(/[|_~^"'`]+/g, " ").replace(/\s+/g, " ").trim().replace(/(\s+[A-Ga-g]{1,2}\.?)+$/, "");
+  let n = s.replace(/\S*\d{8,}\S*/g, " ") // kod kreskowy EAN w linii nazwy (Intermarché)
+    .replace(/[|_~^"'`]+/g, " ").replace(/\s+/g, " ").trim().replace(/(\s+[A-Ga-g]{1,2}\.?)+$/, "");
   n = n.replace(new RegExp(`^[^0-9${L}]+`), "").replace(/[\s.,:;*x×-]+$/i, "");
   if (n === n.toUpperCase()) n = n.toLowerCase(); // „MLEKO UHT” → „mleko uht”
   return n.charAt(0).toUpperCase() + n.slice(1);
@@ -73,11 +75,26 @@ export function parseReceipt(raw) {
     return null;
   };
   total = totalOf(/S?U\s?M\s?A\s*:?\s*P\s?L/i) ?? totalOf(/DO\s*ZAP[ŁL]AT/i) ?? totalOf(/\bSUMA\b/i) ?? totalOf(/\bPLN\b/i);
+  // Niezależne potwierdzenia sumy: „SPRZEDAŻ OPODATKOWANA A/B/C” sumują się do kwoty do zapłaty,
+  // a płatność kartą/gotówką ją powtarza. Duża czcionka SUMA PLN często czyta się źle (73,56 → 13,56).
+  let vat = 0, vatN = 0, paid = null;
+  for (const l of lines) {
+    const a = [...l.matchAll(AMOUNT)];
+    if (!a.length) continue;
+    const v = toGr(a[a.length - 1][0]);
+    if (/SPRZEDA|SPRZ\.?\s*OPOD|OPODATK|ZWOLNION|\bSP\.\s?(OP|ZW)\b/i.test(l) && !/PTU|VAT\s*\d/i.test(l)) { vat += v; vatN++; }
+    else if (paid == null && /\bKARTA\b|KARTY|P[ŁL]ATNO[ŚS][ĆC]|GOT[ÓO]WK|BLIK|DEBIT|VISA|MASTERCARD/i.test(l) && !/RESZTA/i.test(l)) paid = v;
+  }
+  const others = [vatN ? vat : null, paid].filter((x) => x != null);
+  if (others.length && !others.includes(total)) {
+    if (others.length === 2 && others[0] === others[1]) total = others[0];
+    else if (total == null) total = paid ?? vat;
+  }
 
   const start = lines.findIndex((l) => /PARAGON\s*(NIE)?\s*FISK/i.test(l));
-  const headText = lines.slice(0, Math.max(start, 6)).join(" ");
+  const headText = lines.slice(0, Math.max(start, 10)).join(" ");
   const chain = CHAINS.find(([re]) => re.test(headText));
-  const storeLine = lines.slice(0, start >= 0 ? start : 3).find((l) => letterCount(l) >= 3 && !/NIP|ul\.|al\.|tel|^\d/i.test(l));
+  const storeLine = lines.slice(0, start >= 0 ? start : 3).find((l) => letterCount(l) >= 4 && !/NIP|ul\.|al\.|tel|^\d|BDO|PARAGON/i.test(l) && !(MONTHS.test(l) && /20\d{2}/.test(l)));
   const store = chain ? chain[1] : storeLine ? cleanName(storeLine) : null;
 
   const items = [];
@@ -103,7 +120,15 @@ export function parseReceipt(raw) {
     if (skipSummary && amounts.length && letterCount(l) < 3) { skipSummary = false; continue; }
     skipSummary = false;
     if (STOP.test(l)) { flushCont(); if (items.length) break; continue; }
-    if (/\d[.,]\d{2}\s*%/.test(l)) continue; // stawki VAT
+    if (/(^|\D)\d{1,2}[.,]\d{2}\s*%(?!\d)/.test(l)) continue; // stawki VAT („PTU A 23,00 %”), ale nie „%0.00” (zniekształcona kwota)
+    if (/BEZ\s*RECEP|RYCZA[ŁL]T|REFUND|ODP[ŁL]ATNO|\bPE[ŁL]NOP[ŁL]ATN/i.test(l)) {
+      // drugi odczyt kwoty poprzedniego leku – gdy się różni, posłuży do sprawdzenia z sumą
+      if (amounts.length && items.length) {
+        const last = items[items.length - 1], v = toGr(amounts[amounts.length - 1][0]);
+        if (v > 0 && v !== last.g && !last.alt) last.alt = v - last.g;
+      }
+      flushCont(); continue;
+    }
     if (isDiscount) {
       flushCont();
       if (amounts.length) discountLast(toGr(amounts[amounts.length - 1][0]));
@@ -113,7 +138,7 @@ export function parseReceipt(raw) {
     if (!amounts.length) {
       if (letterCount(l) >= 3 || (contTarget && /^\d{2,4}g$/.test(l)) || (contTarget && /^[\d.,]+\s*(g|kg|ml|l|szt)\b/i.test(l))) {
         if (pending && contTarget) flushCont(); // dwie linie bez ceny: pierwsza dokańczała poprzednią nazwę
-      if (contTarget && /^\d{2,4}9$/.test(l)) l = l.slice(0, -1) + "g"; // „4009” → „400g” (OCR myli g z 9)
+        if (contTarget && /^\d{2,4}9$/.test(l)) l = l.slice(0, -1) + "g"; // „4009” → „400g” (OCR myli g z 9)
         pending = l;
       }
       continue;
@@ -136,11 +161,17 @@ export function parseReceipt(raw) {
 
     // Ilość × cena bez wartości na końcu (OCR zgubił albo ucięta) – policz.
     const qm = q >= 0 ? l.slice(q).match(/(\d+(?:[.,]\d+)?)\s*(?:szt\.?|kg|op\.?|l)?\s*[x×*][:.]?\s*(\d{1,5}[.,]\d{2})(?!\d)/i) : null;
-    let alt = null, calc = null, fixed = null; // ilość × cena – do sprawdzenia krzyżowego z kwotą
+    let alt = null, calc = null, fixed = null, qtyVal = null; // ilość × cena – do sprawdzenia krzyżowego z kwotą
     if (qm) {
-      calc = Math.round(parseFloat(qm[1].replace(",", ".")) * toGr(qm[2]));
+      qtyVal = parseFloat(qm[1].replace(",", "."));
+      calc = Math.round(qtyVal * toGr(qm[2]));
+      // waga „0,922” odczytana jako „6,922” / „8,922” / „9,922” – sprawdź, czy z zerem zgadza się z kwotą
+      if (/^[689][.,]\d{3}$/.test(qm[1]) && value) {
+        const q0 = parseFloat("0." + qm[1].slice(2)), c0 = Math.round(q0 * toGr(qm[2]));
+        if (Math.abs(c0 - value) < Math.abs(calc - value)) { qtyVal = q0; calc = c0; }
+      }
       const unitIsLast = amounts.length === 1 || amounts[amounts.length - 1].index <= l.indexOf(qm[2], q) + 1;
-      if (unitIsLast) value = calc; // brak kwoty na końcu (OCR zgubił)
+      if (unitIsLast || !value) value = calc; // brak lub nieczytelna kwota na końcu (OCR zgubił)
       else if (calc && calc !== value) {
         const r = value / calc;
         // przecinek w złym miejscu (×10, ×100, ÷10): ilość × cena jest wiarygodniejsza
@@ -156,12 +187,17 @@ export function parseReceipt(raw) {
     name = cleanName(name || "");
     const item = { name: letterCount(name) >= 2 ? name : "Pozycja (sprawdź nazwę)", g: value, base: value };
     if (alt) item.alt = alt - value;
-    if (calc) { item.calc = calc; item.qty = parseFloat(qm[1].replace(",", ".")); item.unit = toGr(qm[2]); }
+    if (calc) { item.calc = calc; item.qty = qtyVal; item.unit = toGr(qm[2]); }
     if (fixed) item.fixed = fixed;
     items.push(item);
     contTarget = nameLetters >= 3 ? item : null;
   }
   flushCont();
+  const itemsSum = items.reduce((a, it) => a + it.g, 0);
+  // SUMA PLN potwierdzona drugim źródłem (np. płatnością kartą) – nie podważamy jej
+  if (!others.includes(total)) for (const alt of others) { // tylko gdy pozycje prawie dokładnie potwierdzają tę drugą kwotę
+    if (alt !== total && Math.abs(itemsSum - alt) <= Math.min(100, alt * 0.01) && (total == null || Math.abs(itemsSum - alt) < Math.abs(itemsSum - total))) total = alt;
+  }
   fixWithTotal(items, total);
   for (const it of items) delete it.alt;
   return { store, date, total, lead, items: items.filter((it) => it.g > 0) };

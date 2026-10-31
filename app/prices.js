@@ -82,7 +82,7 @@ const T = [
   [/energet|red bull|monster|tiger/, { szt: [2, 12] }, "energetyk"],
   // chemia i dom
   [/papier toal|papier toalet|toal/, { szt: [4, 50] }, "papier toaletowy"],
-  [/recznik papier|reczniki/, { szt: [3, 30] }, "ręczniki papierowe"],
+  [/recznik\s*papier|reczniki/, { szt: [3, 30] }, "ręczniki papierowe"],
   [/proszek|kapsulk|zel do pran|plyn do pran|perwoll|vizir|ariel|persil/, { szt: [8, 90] }, "środek do prania"],
   [/plyn do naczyn|ludwik|fairy|tablet.*zmyw|finish/, { szt: [3, 80] }, "do zmywania"],
   [/szampon|zel pod prysz|mydlo|dezodor|pasta do zeb|prysz/, { szt: [2, 40] }, "kosmetyki"],
@@ -105,8 +105,8 @@ const T = [
   // mięso – rodzaje
   [/mielon|mies miel/, { kg: [10, 60], szt: [5, 40] }, "mięso mielone"],
   [/kotlet|sznycel|devolaj|nugget|stripsy|burger/, { szt: [3, 40], kg: [15, 80] }, "kotlety / panierowane"],
-  [/kaczk|ges|krolik|jagniec/, { kg: [15, 100], szt: [10, 120] }, "mięso"],
-  [/watrob|zoladki|serca|serduszk/, { kg: [5, 30], szt: [3, 20] }, "podroby"],
+  [/kaczk|\bges\b|gesi|krolik|jagniec/, { kg: [15, 100], szt: [10, 120] }, "mięso"],
+  [/watrob|zoladki\b|serca\b|serduszk/, { kg: [5, 30], szt: [3, 20] }, "podroby"],
   [/salceson|kaszank|pasztetow|smalec|leberka/, { szt: [2, 20], kg: [8, 50] }, "wędliny podrobowe"],
   [/kurczak caly|tuszk/, { kg: [7, 30], szt: [10, 60] }, "kurczak"],
   // pieczywo i wypieki
@@ -146,6 +146,19 @@ const T = [
   [/papierosy|tyton|iqos|heets|terea|wklady do|liquid/, { szt: [8, 40] }, "wyroby tytoniowe"],
   [/gazeta|czasopism|kart.*podarun|doladowan/, { szt: [2, 300] }, "inne"],
   [/kwiat|bukiet|roz[ae]|tulipan|doniczk|ziemia do/, { szt: [2, 120] }, "kwiaty / ogród"],
+  // sklepy niespożywcze (JYSK, IKEA, Pepco, Decathlon, RTV…) – szerokie widełki
+  [/koldr|poduszk|poszew|posciel|przescierad|materac|koc\b|narzut|dywan|zaslon|firan|recznik(?!\s*papier|i)|obrus/, { szt: [5, 2000] }, "tekstylia domowe"],
+  [/mebl|krzesl|stol|szafk|regal|lozk|sofa|fotel|komod|lustr|lamp/, { szt: [10, 5000] }, "meble / wyposażenie"],
+  [/garnek|patelni|talerz|kubek|szklank|sztuc|noz\b|deska do|pojemnik|termos|czajnik/, { szt: [2, 800] }, "kuchnia"],
+  [/buty|obuw|kurtk|spodni|bluz|koszul|sukien|spodnic|sweter|t-shirt|skarpet|majtk|bielizn|czapk|rekawiczk|szalik|legginsy|piżam|pizam/, { szt: [3, 1500] }, "ubrania / obuwie"],
+  [/ladowark|kabel|sluchawk|glosnik|myszk|klawiatur|pendrive|karta pam|powerbank|telefon|etui|bateri/, { szt: [3, 5000] }, "elektronika"],
+  [/zabawk|lego|klock|lalk|puzzl|gra plansz|pluszak|samochodzik/, { szt: [3, 1500] }, "zabawki"],
+  [/rower|kask|pilka|rakiet|hantl|mata do|namiot|spiwor|plecak|torba sport/, { szt: [5, 5000] }, "sport"],
+  [/farba|wkret|srub|wiertl|narzedz|mlotek|tasma|silikon|klej|panel|plytk|cement|zaprawa/, { szt: [1, 3000] }, "budowlane / narzędzia"],
+  [/\blek|tabl|kaps|syrop|masc|krople|aerozol|spray do nosa|witamin|suplement|apap|ibuprom|ibuprofen|paracetamol|nurofen|mucosolvan|erdomed|sinulan|strepsils/, { szt: [2, 300] }, "leki / suplementy"],
+  [/bilet|kino|seans|parking|oplat/, { szt: [1, 500] }, "usługi / bilety"],
+  [/pizza|kebab|burger|frytki|zestaw|obiad|danie|kawa na wynos|latte|cappuccino|herbata na/, { szt: [3, 250] }, "jedzenie na mieście"],
+  [/paliwo|benzyn|diesel|\bon\b|pb95|pb 95|pb98|lpg|adblue/, { szt: [5, 1500], kg: [3, 12] }, "paliwo"],
   [/kaucj/, { szt: [0.1, 2] }, "kaucja"],
 ];
 
@@ -154,7 +167,8 @@ const zl = (x) => x.toLocaleString("pl-PL", { minimumFractionDigits: x % 1 ? 2 :
 
 // Zwraca opis, jeśli cena wygląda nietypowo, np. „pomidory zwykle 2–30 zł/kg, tu 89,00 zł/kg”.
 export function checkTypicalPrice(it) {
-  const n = norm(it.name);
+  // OCR myli „l” z „1” i „o” z „0” w środku słowa: „M1eko” → „mleko”, „s0k” → „sok”
+  const n = norm(it.name).replace(/([a-z])[1|]([a-z])/g, "$1l$2").replace(/([a-z])0([a-z])/g, "$1o$2");
   if (!n || !it.g) return null;
   const hit = T.find(([re]) => re.test(n));
   const weighedAny = it.qty && it.unit && it.qty % 1 !== 0;
