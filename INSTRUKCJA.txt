@@ -96,6 +96,13 @@ bez hasła nikt go nie odczyta, ale Ty też nie. Hasło trzymaj w menedżerze ha
 Plik bez hasła da się odczytać, więc nie wysyłaj go przez komunikatory.
 
 
+GRAFIKI I ANIMACJE
+------------------
+Po zeskanowaniu paragonu w tle spadają ikonki rozpoznanych produktów
+(np. 🥟 przy pierogach), przy zgodnej sumie pojawia się konfetti, a przy
+rozliczeniu – deszcz monet. Wyłączysz je w Ustawieniach → Aplikacja → Animacje.
+
+
 AKTUALIZACJE
 ------------
 Gdy wyjdzie nowa wersja, w aplikacji pojawi się pasek „Jest nowa wersja” → „Odśwież”.

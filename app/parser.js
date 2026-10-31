@@ -88,7 +88,7 @@ export function parseReceipt(raw) {
   const others = [vatN ? vat : null, paid].filter((x) => x != null);
   if (others.length && !others.includes(total)) {
     if (others.length === 2 && others[0] === others[1]) total = others[0];
-    else if (total == null) total = paid ?? vat;
+    else if (total == null && paid != null) total = paid; // suma ze „Sprzedaży opodatkowanej” – tylko gdy potwierdzą ją pozycje (niżej)
   }
 
   const start = lines.findIndex((l) => /PARAGON\s*(NIE)?\s*FISK/i.test(l));
@@ -200,7 +200,9 @@ export function parseReceipt(raw) {
   }
   fixWithTotal(items, total);
   for (const it of items) delete it.alt;
-  return { store, date, total, lead, items: items.filter((it) => it.g > 0) };
+  // suma ze „Sprzedaży opodatkowanej” jako podpowiedź – przy kilku zrzutach potwierdzą ją dopiero wszystkie pozycje razem
+  const totalHint = total == null && vatN ? vat : null;
+  return { store, date, total, totalHint, lead, items: items.filter((it) => it.g > 0) };
 }
 
 // Gdy suma pozycji ≠ SUMA PLN, a w niektórych liniach kwota nie zgadza się z „ilość × cena”,

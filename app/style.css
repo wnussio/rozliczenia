@@ -86,7 +86,8 @@ input,select{font:inherit;font-size:16px;color:var(--ink);background:var(--surfa
 .scan .btn{border-color:var(--sh);color:var(--sh)}
 .items{display:grid;gap:8px}
 .item{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px;display:grid;gap:8px}
-.item-top{display:grid;grid-template-columns:1fr 92px 34px;gap:6px;align-items:center}
+.item-top{display:grid;grid-template-columns:30px 1fr 92px 34px;gap:6px;align-items:center}
+.it-emo{font-size:1.35rem;text-align:center;line-height:1}
 .item-top .it-price{text-align:right;font-family:var(--f-mono)}
 .x{border:0;background:none;color:var(--muted);font-size:1.3rem;cursor:pointer;height:34px;border-radius:8px}
 .chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
@@ -133,3 +134,17 @@ pre{white-space:pre-wrap;text-align:left;font-family:var(--f-mono);font-size:.75
 .opt-row{display:grid;grid-template-columns:1fr 80px 34px;gap:6px;align-items:center}
 .opt-fixed{display:flex;justify-content:space-between;padding:8px 2px;border-bottom:1px solid var(--line);font-size:.9rem}
 @media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+
+/* grafiki i animacje */
+h1{display:flex;align-items:center;gap:8px}
+.logo{width:30px;height:30px;flex:none}
+.card-emo{margin-right:6px;letter-spacing:1px}
+.empty-art{display:block;width:96px;height:96px;margin:0 auto 10px}
+#fx-layer{position:fixed;inset:0;pointer-events:none;z-index:50;overflow:hidden}
+.fx-fall{position:absolute;top:-60px;will-change:transform;animation-name:fx-fall;animation-timing-function:cubic-bezier(.35,.05,.6,1);animation-fill-mode:forwards;filter:drop-shadow(0 2px 2px rgb(0 0 0 / .18))}
+@keyframes fx-fall{0%{transform:translate(0,0) rotate(0);opacity:0}8%{opacity:1}85%{opacity:1}100%{transform:translate(var(--sway),calc(100vh + 120px)) rotate(var(--rot));opacity:0}}
+.fx-burst{position:absolute;transform:translate(-50%,-50%);animation:fx-burst .95s cubic-bezier(.15,.7,.3,1) forwards}
+@keyframes fx-burst{0%{opacity:1;transform:translate(-50%,-50%) scale(.3)}70%{opacity:1}100%{opacity:0;transform:translate(calc(-50% + var(--dx)),calc(-50% + var(--dy))) rotate(var(--rot)) scale(1.1)}}
+.notice.ok{animation:pop .5s ease-out}
+@keyframes pop{0%{transform:scale(.96)}60%{transform:scale(1.02)}100%{transform:scale(1)}}
+@media (prefers-reduced-motion: reduce){#fx-layer{display:none}}

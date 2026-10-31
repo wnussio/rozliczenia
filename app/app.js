@@ -3,6 +3,7 @@
 // między telefonami dane przenosi się plikiem (opcjonalnie zaszyfrowanym hasłem).
 import { parseReceipt } from "./parser.js";
 import { checkTypicalPrice } from "./prices.js";
+import { foodEmoji, emojisFor, rain, burst, setAnimations } from "./fx.js";
 import { readReceipt, setProgress, terminate, workerReady, ocrState } from "./ocr.js";
 let scanToken = 0;
 
@@ -92,6 +93,15 @@ let groupBy = LS.get("groupBy") || "month";
 let selecting = false;
 const selected = new Set();
 
+const EMPTY_ART = `<svg class="empty-art" viewBox="0 0 120 120" aria-hidden="true">
+  <path d="M30 14h60v86l-7.5-6-7.5 6-7.5-6-7.5 6-7.5-6-7.5 6-7.5-6-7.5 6z" fill="var(--surface)" stroke="var(--line)" stroke-width="2.5" stroke-linejoin="round"/>
+  <path d="M42 34h36M42 46h28M42 58h32M42 70h20" stroke="var(--muted)" stroke-width="3.5" stroke-linecap="round" opacity=".5"/>
+  <circle cx="88" cy="84" r="17" fill="var(--sh)"/><text x="88" y="91" text-anchor="middle" font-size="19" font-weight="800" fill="var(--surface)">½</text>
+</svg>`;
+function cardEmojis(r) { // do 4 różnych ikonek produktów z paragonu
+  const em = [...new Set((r.items || []).map((it) => foodEmoji(it.name)).filter(Boolean))].slice(0, 4).join("");
+  return em ? `<span class="card-emo" aria-hidden="true">${em}</span>` : "";
+}
 function renderHome() {
   const all = entries();
   const b = balanceOf(all);
@@ -113,7 +123,7 @@ function renderHome() {
   if (!list.length) {
     $("#list").innerHTML = all.length
       ? `<div class="empty">${filter === "open" ? "Wszystko rozliczone ✓" : "Brak wpisów w tym widoku."}</div>`
-      : `<div class="empty">Nic tu jeszcze nie ma.<br><b>📷 Paragon</b>: zeskanuj i przypisz pozycje.<br><b>+ Kwota</b>: wydatek bez paragonu.</div>`;
+      : `<div class="empty">${EMPTY_ART}Nic tu jeszcze nie ma.<br><b>📷 Paragon</b>: zeskanuj i przypisz pozycje.<br><b>+ Kwota</b>: wydatek bez paragonu.</div>`;
     renderSelbar(); return;
   }
   const sections = new Map();
@@ -140,7 +150,7 @@ function renderHome() {
       html += `<div class="card${r.settled ? " done" : ""}${sel ? " sel" : ""}" data-id="${esc(r.id)}" role="button" tabindex="0">
         ${selecting ? `<span class="tick" aria-hidden="true">${sel ? "✓" : ""}</span>` : ""}
         <div class="card-body">
-          <div class="card-top"><strong>${esc(r.store || "Zakupy")}${r.group && groupBy !== "group" ? `<span class="tag">${esc(r.group)}</span>` : ""}${r.scannedTotal != null && r.scannedTotal !== rTotal(r) ? `<span class="tag warn" title="Suma pozycji nie zgadza się z SUMA PLN z paragonu">⚠ suma</span>` : ""}</strong><span class="num">${fmt(rTotal(r))}</span></div>
+          <div class="card-top"><strong>${cardEmojis(r)}${esc(r.store || "Zakupy")}${r.group && groupBy !== "group" ? `<span class="tag">${esc(r.group)}</span>` : ""}${r.scannedTotal != null && r.scannedTotal !== rTotal(r) ? `<span class="tag warn" title="Suma pozycji nie zgadza się z SUMA PLN z paragonu">⚠ suma</span>` : ""}</strong><span class="num">${fmt(rTotal(r))}</span></div>
           <div class="card-sub"><span>${esc(fmtDate(r.date))} · płacił(a) <span class="who who-${r.payer}">${esc(P(r.payer))}</span></span>
           <span>${r.settled ? "rozliczone ✓" : o ? `<span class="who who-${other}">${esc(P(other))}</span> oddaje <span class="num">${fmt(o)}</span>` : "nic do oddania"}</span></div>
         </div></div>`;
@@ -191,6 +201,7 @@ $("#sel-settle").onclick = () => {
   const t = Date.now();
   for (const id of selected) { const e = db.entries[id]; if (e && !e.settled) { e.settled = true; e.settledAt = t; e.updatedAt = t; } }
   persist(); const n = selected.size; exitSelect(); notice("#home-notice", `Oznaczono jako rozliczone: ${n}.`);
+  rain(["🪙", "💸", "🪙", "💰", "✅"], Math.min(32, 12 + n * 2));
 };
 $("#sel-unsettle").onclick = () => {
   const t = Date.now();
@@ -246,6 +257,7 @@ $("#q-save").onclick = () => {
     group: $("#q-group").value.trim(), items: [{ name: desc, g, opt: quick.opt }],
     settled, ...(settled ? { settledAt: quick.settledAt || Date.now() } : {}), createdAt: quick.createdAt || Date.now(),
   });
+  rain([foodEmoji(desc) || "💸"], 10);
   quick = null; goHome();
 };
 $("#q-del").onclick = () => {
@@ -260,6 +272,7 @@ function openEditor(r) {
   draft.items = draft.items || [];
   draft.defOpt = "shared";
   draft.history = priceHistory();
+  draft.matchedShown = draft.scannedTotal != null && draft.scannedTotal === rTotal(draft); // bez konfetti przy otwieraniu zapisanego
   $("#ed-store").value = draft.store || ""; $("#ed-date").value = draft.date || today();
   $("#ed-group").value = draft.group || ""; $("#ed-settled").checked = !!draft.settled;
   $("#ed-del-wrap").hidden = !draft.id; disarm($("#btn-del"));
@@ -274,6 +287,7 @@ function renderEditor() {
   $("#items").innerHTML = draft.items.map((it, i) => `
     <div class="item" data-i="${i}" id="item-${i}">
       <div class="item-top">
+        <span class="it-emo" id="emo-${i}" aria-hidden="true">${foodEmoji(it.name) || "🧾"}</span>
         <input class="it-name" id="it-name-${i}" value="${esc(it.name)}" placeholder="Nazwa" aria-label="Nazwa pozycji">
         <input class="it-price" id="it-price-${i}" value="${it.g ? fmtIn(it.g) : ""}" inputmode="decimal" placeholder="0,00" aria-label="Cena">
         <button type="button" class="x" data-delitem aria-label="Usuń pozycję">×</button>
@@ -326,9 +340,17 @@ function renderTotals() {
     $("#ed-check").innerHTML = `<div class="notice warn">⚠ Nie zgadza się z paragonem: SUMA PLN <span class="num">${fmt(draft.scannedTotal)}</span>, pozycje <span class="num">${fmt(total)}</span> (różnica <span class="num">${fmt(Math.abs(diff))}</span>).`
       + (hints.length ? `<ul class="hints">${hints.join("")}</ul>` : " Sprawdź pozycje oznaczone na pomarańczowo.")
       + `<div class="row-btns" id="fix-total-box"><button type="button" class="link" data-hint-total>SUMA PLN źle odczytana? Popraw ją</button></div></div>`;
-  } else if (draft.scannedTotal != null) $("#ed-check").innerHTML = `<div class="notice ok">✓ Zgadza się z SUMA PLN na paragonie (${fmt(total)})</div>`;
+  } else if (draft.scannedTotal != null) {
+    $("#ed-check").innerHTML = `<div class="notice ok">✓ Zgadza się z SUMA PLN na paragonie (${fmt(total)})</div>`;
+    if (!draft.matchedShown) {
+      draft.matchedShown = true;
+      const r = $("#ed-check").getBoundingClientRect();
+      setTimeout(() => burst(r.left + r.width / 2, Math.min(innerHeight - 80, Math.max(80, r.top + 20))), 350);
+    }
+  }
   else $("#ed-check").innerHTML = "";
   draft.items.forEach((_, i) => $("#item-" + i)?.classList.toggle("flag", flagged.has(i)));
+  if (draft.scannedTotal == null || draft.scannedTotal !== total) draft.matchedShown = false;
 }
 // Kontrola pojedynczej pozycji: ilość × cena z tej samej linii i ceny z poprzednich paragonów.
 function itemChecks(it, diff = null) {
@@ -398,7 +420,7 @@ $("#items").onclick = (e) => {
 };
 $("#items").oninput = (e) => {
   const row = e.target.closest(".item"); if (!row) return; const it = draft.items[+row.dataset.i];
-  if (e.target.classList.contains("it-name")) it.name = e.target.value;
+  if (e.target.classList.contains("it-name")) { it.name = e.target.value; const em = $("#emo-" + row.dataset.i); if (em) em.textContent = foodEmoji(it.name) || "🧾"; }
   else if (e.target.classList.contains("it-price")) { it.g = parseMoney(e.target.value); it.base = it.g; delete it.calc; delete it.fixed; delete it.unit; delete it.qty; renderTotals(); }
 };
 $("#btn-add-item").onclick = () => { draft.items.push({ name: "", g: 0, opt: draft.defOpt || "shared" }); renderEditor(); $("#it-name-" + (draft.items.length - 1))?.focus(); };
@@ -503,9 +525,14 @@ function applyParsed(text, replaceLast = false) {
   draft.items = m.items;
   const k = m.skipped, added = m.added;
   draft.lastPart = part;
+  if (added) rain(emojisFor(draft.items.slice(-added)), Math.min(30, 8 + added * 2));
   if (res.store && !$("#ed-store").value.trim()) $("#ed-store").value = res.store;
   if (res.date) $("#ed-date").value = res.date;
   if (res.total != null) draft.scannedTotal = res.total;
+  else if (res.totalHint && draft.scannedTotal == null) { // suma ze „Sprzedaży opodatkowanej” – gdy wszystkie pozycje ją potwierdzają
+    const s = rTotal(draft);
+    if (Math.abs(s - res.totalHint) <= Math.min(100, res.totalHint * 0.01)) draft.scannedTotal = res.totalHint;
+  }
   $("#scan-status").textContent = `Dodano ${added} ${added === 1 ? "pozycję" : added < 5 && added > 1 ? "pozycje" : "pozycji"}`
     + (k ? `, pominięto ${k} powtórzon${k === 1 ? "ą" : "e"} z poprzedniego zrzutu` : "")
     + (res.total == null ? ". Długi paragon? Zeskanuj dalszą część – powtórzenia pominę." : ".");
@@ -693,6 +720,9 @@ async function checkUpdate(manual) {
   } catch { if (manual) notice("#update-notice", "Nie udało się sprawdzić. Sprawdź internet i spróbuj ponownie.", "warn"); }
 }
 $("#btn-update").onclick = () => checkUpdate(true);
+setAnimations(LS.get("anim") !== "off");
+$("#set-anim").checked = LS.get("anim") !== "off";
+$("#set-anim").onchange = (e) => { LS.set("anim", e.target.checked ? "on" : "off"); setAnimations(e.target.checked); if (e.target.checked) rain(["🥟", "🍅", "🧀", "🥖"], 12); };
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then((reg) => {
     swReg = reg;
@@ -701,8 +731,10 @@ if ("serviceWorker" in navigator) {
   }).catch(() => { /* bez trybu offline */ });
   // Sprawdzaj też przy każdym powrocie do aplikacji (telefony rzadko ją zamykają do końca).
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && navigator.onLine) checkUpdate(false); });
+  // przeładuj tylko przy aktualizacji – nie przy pierwszej instalacji (wtedy nie było wcześniejszej wersji)
+  const hadController = !!navigator.serviceWorker.controller;
   let reloaded = false;
-  navigator.serviceWorker.addEventListener("controllerchange", () => { if (!reloaded) { reloaded = true; location.reload(); } });
+  navigator.serviceWorker.addEventListener("controllerchange", () => { if (hadController && !reloaded) { reloaded = true; location.reload(); } });
 }
 
 /* ---------- start ---------- */
