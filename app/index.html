@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0d7a6f">
+  <meta name="theme-color" content="#ff7eb6">
   <meta name="description" content="Wspólne rachunki: skanuj paragony, przypisuj pozycje i sprawdzaj, kto komu ile oddaje. Dane zostają w telefonie.">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
@@ -15,10 +15,11 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<div id="bg-layer" aria-hidden="true"></div>
 <div class="wrap">
   <header>
     <div>
-      <h1><svg class="logo" viewBox="0 0 40 40" aria-hidden="true"><path d="M8 4h24v30l-3-2.4-3 2.4-3-2.4-3 2.4-3-2.4-3 2.4-3-2.4-3 2.4z" fill="var(--sh)"/><text x="20" y="25" text-anchor="middle" font-size="16" font-weight="800" fill="var(--bg)">½</text></svg>Rozliczenia</h1>
+      <h1><img class="logo" src="icon-192.png" alt="" width="32" height="32">Rozliczenia</h1>
       <p class="status">dane tylko w tym telefonie</p>
     </div>
     <nav class="tabs" id="tabs">
@@ -33,6 +34,7 @@
 
   <!-- EKRAN GŁÓWNY -->
   <section id="v-home">
+    <div class="hero" id="home-hero"></div>
     <div class="balance">
       <span class="label">Do oddania · nierozliczone</span>
       <div class="bal-who" id="bal-who"></div>
@@ -103,7 +105,7 @@
           <textarea id="paste-text" rows="6" placeholder="Wklej tekst paragonu (np. skopiowany ze zdjęcia przez Tekst na żywo / Google Lens)"></textarea>
           <button type="button" class="btn primary" id="btn-paste-go">Rozpoznaj pozycje</button>
         </div>
-        <span class="muted small" id="scan-status">Paragon czyta telefon, zdjęcie nigdzie nie jest wysyłane. Pozycje możesz też dodać ręcznie.</span>
+        <div class="hero"><span id="scan-mascot"></span><div class="bubble" id="scan-status">Paragon czyta telefon, zdjęcie nigdzie nie jest wysyłane. Pozycje możesz też dodać ręcznie.</div></div>
         <button type="button" class="btn" id="btn-scan-stop" hidden>Przerwij</button>
         <details id="raw-box" hidden>
           <summary class="small">Odczytany tekst: popraw i rozpoznaj ponownie</summary>

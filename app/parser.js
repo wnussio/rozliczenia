@@ -10,7 +10,13 @@ const DISCOUNT = /RABA[TLI1]\b|RABAT|OPUST|PROMOC|OBNI[ŻZ]K|UPUST|ZNI[ŻZ]K|KUP
 const DISCOUNT_SUMMARY = /[ŁL][ĄA]CZN|SUMA|RAZEM|W\s*TYM|OSZCZ[ĘE]DZ|ZAOSZCZ/i; // „Opust łącznie”, „Suma rabatów”
 const QTY_G = /(?:^|[\s.])\d+(?:[.,]\d+)?\s*(?:sz[tl1]\.?|kg|op\.?|l)?\s*[x×*][:.]?\s*-?\d{1,5}[.,]\d{1,2}(?!\d)/gi;
 // pozycja ostatniego „ilość × cena” w linii (pierwsze bywa częścią nazwy, np. „Woda 6x1,5L”)
-const qtyPos = (l) => { let pos = -1; for (const m of l.matchAll(QTY_G)) pos = m.index; return pos; };
+const QTY_NOX = /(?:^|\s)(\d{1,2}|\d[.,]\d{3})\s+(\d{1,5}[.,]\d{2})\s+-?\d{1,5}[.,]\d{2}\s*[A-G]?\s*$/i;
+const qtyPos = (l) => {
+  let pos = -1;
+  for (const m of l.matchAll(QTY_G)) pos = m.index;
+  if (pos < 0) { const m = l.match(QTY_NOX); if (m) pos = m.index; }
+  return pos;
+};
 const UNIT_TOKENS = /\b(?:szt|kg|op|x|l|[A-G])\b\.?/gi;
 
 const CHAINS = [
@@ -160,7 +166,7 @@ export function parseReceipt(raw) {
     }
 
     // Ilość × cena bez wartości na końcu (OCR zgubił albo ucięta) – policz.
-    const qm = q >= 0 ? l.slice(q).match(/(\d+(?:[.,]\d+)?)\s*(?:szt\.?|kg|op\.?|l)?\s*[x×*][:.]?\s*(\d{1,5}[.,]\d{2})(?!\d)/i) : null;
+    const qm = q >= 0 ? (l.slice(q).match(/(\d+(?:[.,]\d+)?)\s*(?:sz[tl1]\.?|kg|op\.?|l)?\s*[x×*][:.]?\s*(\d{1,5}[.,]\d{2})(?!\d)/i) || l.slice(q).match(QTY_NOX)) : null;
     let alt = null, calc = null, fixed = null, qtyVal = null; // ilość × cena – do sprawdzenia krzyżowego z kwotą
     if (qm) {
       qtyVal = parseFloat(qm[1].replace(",", "."));

@@ -13,6 +13,12 @@ Aplikacja na telefon (PWA) do rozliczania wspólnych zakupów dwóch osób. **Ws
 - **Rozliczanie**: zaznaczasz wpisy i oznaczasz je jako rozliczone (albo cofasz / usuwasz). Saldo liczy tylko nierozliczone.
 - **Dwa telefony / kopia**: plik eksportu (opcjonalnie szyfrowany AES-256-GCM hasłem, PBKDF2 250k), import łączy wpisy bez duplikatów.
 
+## Wygląd
+
+Styl anime: pastelowe niebo, płatki sakury w tle, maskotka **Paragon-chan** (autorska postać, SVG w `app/mascot.js`) z nastrojami zależnymi od sytuacji,
+spadające ikonki produktów po skanie i przy przewijaniu do pozycji, konfetti przy zgodnej sumie (`app/fx.js`).
+Czcionka [M PLUS Rounded 1c](https://github.com/coz-m/MPLUS_FONTS) (SIL OFL 1.1) dołączona w `app/fonts/` – działa offline.
+
 ## Prywatność
 
 Aplikacja nie ma serwera ani bazy w chmurze i nie wysyła żadnych danych. Repozytorium zawiera tylko kod.

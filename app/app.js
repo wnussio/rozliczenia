@@ -3,7 +3,8 @@
 // między telefonami dane przenosi się plikiem (opcjonalnie zaszyfrowanym hasłem).
 import { parseReceipt } from "./parser.js";
 import { checkTypicalPrice } from "./prices.js";
-import { foodEmoji, emojisFor, rain, burst, setAnimations } from "./fx.js";
+import { foodEmoji, emojisFor, rain, burst, setAnimations, ambient, watchScroll } from "./fx.js";
+import { mascot, homeLine } from "./mascot.js";
 import { readReceipt, setProgress, terminate, workerReady, ocrState } from "./ocr.js";
 let scanToken = 0;
 
@@ -98,13 +99,21 @@ const EMPTY_ART = `<svg class="empty-art" viewBox="0 0 120 120" aria-hidden="tru
   <path d="M42 34h36M42 46h28M42 58h32M42 70h20" stroke="var(--muted)" stroke-width="3.5" stroke-linecap="round" opacity=".5"/>
   <circle cx="88" cy="84" r="17" fill="var(--sh)"/><text x="88" y="91" text-anchor="middle" font-size="19" font-weight="800" fill="var(--surface)">½</text>
 </svg>`;
+const cardEmojiList = (r) => [...new Set((r.items || []).map((it) => foodEmoji(it.name)).filter(Boolean))].slice(0, 4).join("");
 function cardEmojis(r) { // do 4 różnych ikonek produktów z paragonu
-  const em = [...new Set((r.items || []).map((it) => foodEmoji(it.name)).filter(Boolean))].slice(0, 4).join("");
+  const em = cardEmojiList(r);
   return em ? `<span class="card-emo" aria-hidden="true">${em}</span>` : "";
+}
+let homeIO = null, editIO = null;
+function renderHero(all, b) {
+  const d = b > 0 ? 1 : 0;
+  const line = homeLine({ empty: !all.length, balance: b, debtor: P(d), creditor: P(1 - d), amount: fmt(Math.abs(b)) });
+  $("#home-hero").innerHTML = `${mascot(line.mood)}<div class="bubble">${esc(line.text)}</div>`;
 }
 function renderHome() {
   const all = entries();
   const b = balanceOf(all);
+  renderHero(all, b);
   if (!b) { $("#bal-who").textContent = all.some((e) => !e.settled) ? "Nic do oddania" : "Jesteście kwita"; $("#bal-amt").textContent = fmt(0); }
   else {
     const d = b > 0 ? 1 : 0;
@@ -123,7 +132,7 @@ function renderHome() {
   if (!list.length) {
     $("#list").innerHTML = all.length
       ? `<div class="empty">${filter === "open" ? "Wszystko rozliczone ✓" : "Brak wpisów w tym widoku."}</div>`
-      : `<div class="empty">${EMPTY_ART}Nic tu jeszcze nie ma.<br><b>📷 Paragon</b>: zeskanuj i przypisz pozycje.<br><b>+ Kwota</b>: wydatek bez paragonu.</div>`;
+      : `<div class="empty">${mascot("sleepy")}Nic tu jeszcze nie ma.<br><b>📷 Paragon</b>: zeskanuj i przypisz pozycje.<br><b>+ Kwota</b>: wydatek bez paragonu.</div>`;
     renderSelbar(); return;
   }
   const sections = new Map();
@@ -147,7 +156,7 @@ function renderHome() {
     html += `<div class="month"><div class="month-h"><h2>${esc(title)}</h2>${right}</div>`;
     for (const r of items) {
       const o = rOwed(r), other = 1 - r.payer, sel = selected.has(r.id);
-      html += `<div class="card${r.settled ? " done" : ""}${sel ? " sel" : ""}" data-id="${esc(r.id)}" role="button" tabindex="0">
+      html += `<div class="card${r.settled ? " done" : ""}${sel ? " sel" : ""}" data-id="${esc(r.id)}" data-emo="${esc(cardEmojiList(r))}" role="button" tabindex="0">
         ${selecting ? `<span class="tick" aria-hidden="true">${sel ? "✓" : ""}</span>` : ""}
         <div class="card-body">
           <div class="card-top"><strong>${cardEmojis(r)}${esc(r.store || "Zakupy")}${r.group && groupBy !== "group" ? `<span class="tag">${esc(r.group)}</span>` : ""}${r.scannedTotal != null && r.scannedTotal !== rTotal(r) ? `<span class="tag warn" title="Suma pozycji nie zgadza się z SUMA PLN z paragonu">⚠ suma</span>` : ""}</strong><span class="num">${fmt(rTotal(r))}</span></div>
@@ -158,6 +167,7 @@ function renderHome() {
     html += `</div>`;
   }
   $("#list").innerHTML = html;
+  homeIO?.disconnect(); homeIO = watchScroll($("#list"), ".card");
   renderSelbar();
 }
 $("#f-filter").onclick = (e) => { const f = e.target.closest("[data-f]")?.dataset.f; if (!f) return; filter = f; LS.set("filter", f); renderHome(); };
@@ -279,13 +289,14 @@ function openEditor(r) {
   $("#paste-box").hidden = true; $("#raw-box").hidden = true;
   $("#scan-status").textContent = "Paragon czyta telefon, zdjęcie nigdzie nie jest wysyłane. Pozycje możesz też dodać ręcznie.";
   if (!draft.items.length) draft.items.push({ name: "", g: 0, opt: "shared" });
+  scanMood = null; scanning = false;
   renderEditor(); show("edit");
 }
 function renderEditor() {
   $("#payer").innerHTML = [0, 1].map((i) => `<button type="button" class="p${i}" data-payer="${i}" aria-pressed="${draft.payer === i}">${esc(P(i))}</button>`).join("");
   $("#bulk").innerHTML = chipsHtml(null, "data-bulk");
   $("#items").innerHTML = draft.items.map((it, i) => `
-    <div class="item" data-i="${i}" id="item-${i}">
+    <div class="item" data-i="${i}" id="item-${i}" data-emo="${esc(foodEmoji(it.name) || "")}">
       <div class="item-top">
         <span class="it-emo" id="emo-${i}" aria-hidden="true">${foodEmoji(it.name) || "🧾"}</span>
         <input class="it-name" id="it-name-${i}" value="${esc(it.name)}" placeholder="Nazwa" aria-label="Nazwa pozycji">
@@ -295,6 +306,7 @@ function renderEditor() {
       <div class="chips">${chipsHtml(it.opt, "data-opt")}${isDuplicate(it, i, draft.items) ? `<span class="dup" title="Taka sama nazwa i cena jak inna pozycja">2× – sprawdź</span>` : ""}<span class="owe num" id="owe-${i}"></span></div>
       <div class="warns" id="warn-${i}"></div>
     </div>`).join("");
+  editIO?.disconnect(); editIO = watchScroll($("#items"), ".item");
   renderTotals();
 }
 function renderTotals() {
@@ -350,6 +362,7 @@ function renderTotals() {
   }
   else $("#ed-check").innerHTML = "";
   draft.items.forEach((_, i) => $("#item-" + i)?.classList.toggle("flag", flagged.has(i)));
+  if (!scanning) setScanMood(draft.scannedTotal == null ? "happy" : draft.scannedTotal === total && !flagged.size ? "proud" : "worried");
   if (draft.scannedTotal == null || draft.scannedTotal !== total) draft.matchedShown = false;
 }
 // Kontrola pojedynczej pozycji: ilość × cena z tej samej linii i ceny z poprzednich paragonów.
@@ -400,8 +413,11 @@ $("#ed-check").onclick = (e) => {
     $("#fix-total-ok").onclick = () => { draft.scannedTotal = parseMoney($("#fix-total").value) || null; renderEditor(); };
     return;
   }
-  const b = e.target.closest("[data-hint]"); if (!b) return;
-  const h = draft.hints[+b.dataset.hint]; if (!h) return;
+  const b = e.target.closest("[data-hint]"); if (b) applyHint(+b.dataset.hint);
+};
+// Poprawka z podpowiedzi – przyciski są i przy pozycjach, i w kontroli sumy.
+function applyHint(idx) {
+  const h = draft.hints[idx]; if (!h) return;
   const it = draft.items[h.i];
   if (h.act === "calc") { it.g += it.calc - basePrice(it); it.base = it.calc; }
   else if (h.act === "div10") { it.g = Math.round(it.g / 10); it.base = it.g; delete it.calc; }
@@ -409,10 +425,11 @@ $("#ed-check").onclick = (e) => {
   else if (h.act === "del") draft.items.splice(h.i, 1);
   else if (h.act === "add") draft.items.push({ name: "Brakująca pozycja", g: h.amount, opt: draft.defOpt || "shared" });
   renderEditor();
-};
+}
 $("#payer").onclick = (e) => { const b = e.target.closest("[data-payer]"); if (!b) return; draft.payer = +b.dataset.payer; renderEditor(); };
 $("#bulk").onclick = (e) => { const b = e.target.closest("[data-bulk]"); if (!b) return; draft.defOpt = b.dataset.bulk; draft.items.forEach((it) => { it.opt = b.dataset.bulk; }); renderEditor(); };
 $("#items").onclick = (e) => {
+  const hb = e.target.closest("[data-hint]"); if (hb) { applyHint(+hb.dataset.hint); return; } // „Użyj 11,92” przy pozycji
   const row = e.target.closest(".item"); if (!row) return; const i = +row.dataset.i;
   if (e.target.closest("[data-delitem]")) { draft.items.splice(i, 1); renderEditor(); return; }
   const c = e.target.closest("[data-opt]");
@@ -452,6 +469,9 @@ $("#btn-del").onclick = () => {
 };
 
 /* ---------- odczyt paragonu w telefonie (Tesseract.js, pliki w vendor/) ---------- */
+let scanMood = null, scanning = false;
+function setScanMood(m) { if (m === scanMood) return; scanMood = m; $("#scan-mascot").innerHTML = mascot(m, "small"); }
+
 /* ---------- łączenie kilku zdjęć / zrzutów jednego paragonu, wykrywanie powtórzeń ---------- */
 const normName = (s) => String(s || "").toLowerCase().replace(/ł/g, "l").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]/g, "");
 function nameSim(a, b) { // podobieństwo nazw 0..1 (wspólne pary liter), odporne na drobne błędy OCR
@@ -547,6 +567,7 @@ async function scan(file) {
   const token = ++scanToken;
   $("#btn-scan").disabled = $("#btn-gallery").disabled = true; $("#btn-scan-stop").hidden = false;
   $("#scan-status").textContent = "Przygotowuję zdjęcie (kadrowanie, prostowanie)…";
+  scanning = true; setScanMood("wow");
   setProgress((m) => {
     if (token !== scanToken) return;
     const p = m.progress ? ` ${Math.round(m.progress * 100)}%` : "";
@@ -563,7 +584,7 @@ async function scan(file) {
     if (token !== scanToken) return;
     $("#scan-status").textContent = "Nie udało się odczytać zdjęcia (" + (err?.message || err) + "). Spróbuj ponownie albo wpisz pozycje ręcznie.";
   } finally {
-    if (token === scanToken) { $("#btn-scan").disabled = $("#btn-gallery").disabled = false; $("#btn-scan-stop").hidden = true; }
+    if (token === scanToken) { $("#btn-scan").disabled = $("#btn-gallery").disabled = false; $("#btn-scan-stop").hidden = true; scanning = false; if (draft) renderTotals(); }
   }
 }
 $("#btn-scan").onclick = () => $("#scan-file").click();
@@ -721,6 +742,7 @@ async function checkUpdate(manual) {
 }
 $("#btn-update").onclick = () => checkUpdate(true);
 setAnimations(LS.get("anim") !== "off");
+ambient();
 $("#set-anim").checked = LS.get("anim") !== "off";
 $("#set-anim").onchange = (e) => { LS.set("anim", e.target.checked ? "on" : "off"); setAnimations(e.target.checked); if (e.target.checked) rain(["🥟", "🍅", "🧀", "🥖"], 12); };
 if ("serviceWorker" in navigator) {

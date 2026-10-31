@@ -52,7 +52,57 @@ export function foodEmoji(name) {
 
 /* ---------- efekty ---------- */
 let enabled = true;
-export function setAnimations(on) { enabled = !!on; }
+export function setAnimations(on) { enabled = !!on; document.documentElement.classList.toggle("no-anim", !enabled); }
+
+// Tło: płatki sakury (spokojnie opadają) i gwiazdy widoczne w trybie ciemnym.
+export function ambient() {
+  const bg = document.getElementById("bg-layer");
+  if (!bg || bg.childElementCount) return;
+  for (let i = 0; i < 12; i++) {
+    const p = document.createElement("i");
+    p.className = "petal";
+    p.style.left = rnd(0, 100) + "vw";
+    p.style.animationDuration = rnd(14, 26) + "s";
+    p.style.animationDelay = -rnd(0, 26) + "s";
+    bg.append(p);
+  }
+  for (let i = 0; i < 28; i++) {
+    const s = document.createElement("i");
+    s.className = "star";
+    s.style.left = rnd(0, 100) + "vw"; s.style.top = rnd(0, 100) + "vh";
+    s.style.animationDelay = -rnd(0, 3.5) + "s";
+    bg.append(s);
+  }
+}
+
+// Gdy przewiniesz do pozycji/paragonu z np. pierogami – spadają pierogi (raz na element, z przerwą między deszczami).
+const lastByEmoji = new Map();
+export function watchScroll(root, selector) {
+  if (!("IntersectionObserver" in window)) return null;
+  const io = new IntersectionObserver((entries) => {
+    const now = performance.now(), fresh = [];
+    for (const e of entries) {
+      const el = e.target;
+      if (!e.isIntersecting || el.dataset.rained) continue;
+      el.dataset.rained = "1";
+      for (const ch of [...(el.dataset.emo || "")]) {
+        if (!ch.trim() || ch === "️") continue;
+        if (now - (lastByEmoji.get(ch) || -1e9) < 4000) continue; // ten sam produkt najwyżej raz na 4 s
+        lastByEmoji.set(ch, now);
+        fresh.push(ch);
+      }
+    }
+    if (fresh.length) rain([...new Set(fresh)], 10 + Math.min(8, fresh.length * 2));
+  }, { threshold: 0.6 });
+  root.querySelectorAll(selector).forEach((el) => {
+    if (!el.dataset.emo) return;
+    // to, co widać od razu po otwarciu ekranu – bez deszczu (sprawdzane od razu, nie w następnej klatce)
+    const r = el.getBoundingClientRect();
+    if (r.top < innerHeight && r.bottom > 0) el.dataset.rained = "1";
+    io.observe(el);
+  });
+  return io;
+}
 const reduced = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 const allowed = () => enabled && !reduced() && document.visibilityState === "visible";
 
