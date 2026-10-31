@@ -95,7 +95,7 @@
       <div class="field"><span class="label">Kto płacił?</span><div class="seg" id="payer"></div></div>
       <div class="scan" id="scan-box">
         <input type="file" id="scan-file" accept="image/*" capture="environment" hidden>
-        <input type="file" id="scan-gallery" accept="image/*" hidden>
+        <input type="file" id="scan-gallery" accept="image/*" multiple hidden>
         <div class="scan-btns">
           <button type="button" class="btn" id="btn-scan">📷 Zdjęcie</button>
           <button type="button" class="btn" id="btn-gallery">🖼 Galeria</button>
@@ -107,6 +107,7 @@
         </div>
         <div class="hero"><span id="scan-mascot"></span><div class="bubble" id="scan-status">Paragon czyta telefon, zdjęcie nigdzie nie jest wysyłane. Pozycje możesz też dodać ręcznie.</div></div>
         <button type="button" class="btn" id="btn-scan-stop" hidden>Przerwij</button>
+        <div id="parts" class="parts" hidden></div>
         <details id="raw-box" hidden>
           <summary class="small">Odczytany tekst: popraw i rozpoznaj ponownie</summary>
           <div class="stack">

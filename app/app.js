@@ -295,6 +295,7 @@ function openEditor(r) {
 function renderEditor() {
   $("#payer").innerHTML = [0, 1].map((i) => `<button type="button" class="p${i}" data-payer="${i}" aria-pressed="${draft.payer === i}">${esc(P(i))}</button>`).join("");
   $("#bulk").innerHTML = chipsHtml(null, "data-bulk");
+  renderParts();
   $("#items").innerHTML = draft.items.map((it, i) => `
     <div class="item" data-i="${i}" id="item-${i}" data-emo="${esc(foodEmoji(it.name) || "")}">
       <div class="item-top">
@@ -538,7 +539,8 @@ function applyParsed(text, replaceLast = false) {
   $("#raw-text").value = text; $("#raw-box").hidden = false;
   if (replaceLast && draft.lastPart) draft.items = draft.items.filter((it) => it.scan !== draft.lastPart);
   draft.items = draft.items.filter((it) => it.scan || it.g || it.name); // bez pustych wierszy
-  if (!res.items.length) { $("#scan-status").textContent = "Nie rozpoznałem pozycji. Zrób zdjęcie z bliska, płasko, w dobrym świetle albo popraw odczytany tekst poniżej."; renderEditor(); return; }
+  if (replaceLast && draft.totalFrom === draft.lastPart) { draft.scannedTotal = null; draft.totalFrom = null; }
+  if (!res.items.length) { $("#scan-status").textContent = "Nie rozpoznałem pozycji. Zrób zdjęcie z bliska, płasko, w dobrym świetle albo popraw odczytany tekst poniżej."; renderEditor(); return null; }
   const part = newId();
   const parsed = res.items.map((x) => ({ name: x.name, g: x.g, base: x.base, calc: x.calc, fixed: x.fixed, qty: x.qty, unit: x.unit, opt: draft.defOpt || "shared", scan: part }));
   const m = mergeScan(draft.items, parsed, res.lead);
@@ -548,42 +550,88 @@ function applyParsed(text, replaceLast = false) {
   if (added) rain(emojisFor(draft.items.slice(-added)), Math.min(30, 8 + added * 2));
   if (res.store && !$("#ed-store").value.trim()) $("#ed-store").value = res.store;
   if (res.date) $("#ed-date").value = res.date;
-  if (res.total != null) draft.scannedTotal = res.total;
+  if (res.total != null) { draft.scannedTotal = res.total; draft.totalFrom = part; }
   else if (res.totalHint && draft.scannedTotal == null) { // suma ze „Sprzedaży opodatkowanej” – gdy wszystkie pozycje ją potwierdzają
     const s = rTotal(draft);
-    if (Math.abs(s - res.totalHint) <= Math.min(100, res.totalHint * 0.01)) draft.scannedTotal = res.totalHint;
+    if (Math.abs(s - res.totalHint) <= Math.min(100, res.totalHint * 0.01)) { draft.scannedTotal = res.totalHint; draft.totalFrom = part; }
   }
-  $("#scan-status").textContent = `Dodano ${added} ${added === 1 ? "pozycję" : added < 5 && added > 1 ? "pozycje" : "pozycji"}`
+  $("#scan-status").textContent = `Dodano ${plItems(added)}`
     + (k ? `, pominięto ${k} powtórzon${k === 1 ? "ą" : "e"} z poprzedniego zrzutu` : "")
-    + (res.total == null ? ". Długi paragon? Zeskanuj dalszą część – powtórzenia pominę." : ".");
+    + (res.total == null ? ". Długi paragon? Dodaj kolejne zdjęcie dalszej części – powtórzenia pominę." : ".");
   renderEditor();
+  return { added, skipped: k, total: res.total != null };
 }
+const plItems = (n) => `${n} ${n === 1 ? "pozycję" : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? "pozycje" : "pozycji"}`;
+// Części paragonu (kolejne zdjęcia / wklejone teksty) – z możliwością usunięcia złego zdjęcia.
+function renderParts() {
+  const ids = [...new Set(draft.items.map((it) => it.scan).filter(Boolean))];
+  const box = $("#parts");
+  box.hidden = !ids.length;
+  box.innerHTML = !ids.length ? "" : `<span>${ids.length > 1 ? "Paragon z " + ids.length + " części:" : "Zeskanowano:"}</span>`
+    + ids.map((id, n) => {
+      const c = draft.items.filter((it) => it.scan === id).length;
+      return `<button type="button" class="chip" data-part="${esc(id)}" title="Usuń pozycje z tej części">📄 ${n + 1} · ${c} poz. <span class="x">✕</span></button>`;
+    }).join("");
+}
+$("#parts").onclick = (e) => {
+  const b = e.target.closest("[data-part]"); if (!b || scanning) return;
+  if (!armed(b, "Usunąć? Stuknij jeszcze raz")) return;
+  const id = b.dataset.part;
+  draft.items = draft.items.filter((it) => it.scan !== id);
+  if (draft.totalFrom === id) { draft.scannedTotal = null; draft.totalFrom = null; }
+  if (draft.lastPart === id) draft.lastPart = null;
+  if (!draft.items.length) draft.items.push({ name: "", g: 0, opt: draft.defOpt || "shared" });
+  $("#scan-status").textContent = "Usunięto pozycje z tej części paragonu.";
+  renderEditor();
+};
 function stopScan() {
   scanToken++;
   if (workerReady() && !$("#btn-scan-stop").hidden) terminate();
   $("#btn-scan").disabled = $("#btn-gallery").disabled = false; $("#btn-scan-stop").hidden = true;
 }
-async function scan(file) {
-  const token = ++scanToken;
+// Jedno lub kilka zdjęć tego samego paragonu: czytane po kolei i łączone (mergeScan pomija powtórzenia).
+async function scan(files) {
+  files = [].concat(files);
+  if (files.length > 1) // kolejność jak przy robieniu zdjęć/zrzutów (od góry paragonu); galeria potrafi je przemieszać
+    files.sort((a, b) => (a.lastModified || 0) - (b.lastModified || 0) || a.name.localeCompare(b.name, undefined, { numeric: true }));
+  const token = ++scanToken, many = files.length > 1;
+  let pre = "";
+  const status = (t) => { $("#scan-status").textContent = pre + t; };
   $("#btn-scan").disabled = $("#btn-gallery").disabled = true; $("#btn-scan-stop").hidden = false;
-  $("#scan-status").textContent = "Przygotowuję zdjęcie (kadrowanie, prostowanie)…";
   scanning = true; setScanMood("wow");
   setProgress((m) => {
     if (token !== scanToken) return;
     const p = m.progress ? ` ${Math.round(m.progress * 100)}%` : "";
-    if (m.paddle) { $("#scan-status").textContent = m.status; return; }
+    if (m.paddle) { status(m.status); return; }
     const a = ocrState.attempt;
-    $("#scan-status").textContent = a === "orientacja" ? "Sprawdzam, jak obrócone jest zdjęcie…" : m.status === "recognizing text"
+    status(a === "orientacja" ? "Sprawdzam, jak obrócone jest zdjęcie…" : m.status === "recognizing text"
       ? `Czytam paragon${a && a !== "1" ? ` (próba ${a}: szukam odczytu zgodnego z sumą)` : ""}…${p}`
-      : `Przygotowuję odczyt (pierwszy raz trwa dłużej)…${p}`;
+      : `Przygotowuję odczyt (pierwszy raz trwa dłużej)…${p}`);
   });
+  let added = 0, skipped = 0, total = false;
+  const failed = [];
   try {
-    const res = await readReceipt(file, () => token !== scanToken || !draft);
-    if (!res || token !== scanToken || !draft) return;
-    applyParsed(res.text);
-  } catch (err) {
-    if (token !== scanToken) return;
-    $("#scan-status").textContent = "Nie udało się odczytać zdjęcia (" + (err?.message || err) + "). Spróbuj ponownie albo wpisz pozycje ręcznie.";
+    for (let n = 0; n < files.length; n++) {
+      pre = many ? `Zdjęcie ${n + 1} z ${files.length}: ` : "";
+      status("Przygotowuję zdjęcie (kadrowanie, prostowanie)…");
+      try {
+        const res = await readReceipt(files[n], () => token !== scanToken || !draft);
+        if (!res || token !== scanToken || !draft) return;
+        const r = applyParsed(res.text);
+        if (r) { added += r.added; skipped += r.skipped; total ||= r.total; } else failed.push(n + 1);
+      } catch (err) {
+        if (token !== scanToken) return;
+        if (!many) { status("Nie udało się odczytać zdjęcia (" + (err?.message || err) + "). Spróbuj ponownie albo wpisz pozycje ręcznie."); return; }
+        failed.push(n + 1);
+      }
+    }
+    if (many) {
+      pre = "";
+      status(`Przeczytano ${files.length - failed.length} z ${files.length} zdjęć: dodano ${plItems(added)}`
+        + (skipped ? `, pominięto ${skipped} powtórzon${skipped === 1 ? "ą" : "e"} z części wspólnych` : "")
+        + (failed.length ? `. Nie odczytałem zdjęcia nr ${failed.join(", ")} – zrób je jeszcze raz albo wpisz pozycje ręcznie` : "")
+        + (!total && !failed.length ? ". Nie widzę SUMA PLN – jeśli paragon ma dalszą część, dodaj jej zdjęcie." : "."));
+    }
   } finally {
     if (token === scanToken) { $("#btn-scan").disabled = $("#btn-gallery").disabled = false; $("#btn-scan-stop").hidden = true; scanning = false; if (draft) renderTotals(); }
   }
@@ -592,7 +640,7 @@ $("#btn-scan").onclick = () => $("#scan-file").click();
 $("#btn-gallery").onclick = () => $("#scan-gallery").click();
 $("#btn-scan-stop").onclick = () => { stopScan(); $("#scan-status").textContent = "Przerwano."; };
 for (const id of ["#scan-file", "#scan-gallery"]) {
-  $(id).onchange = (e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) scan(f); };
+  $(id).onchange = (e) => { const f = [...(e.target.files || [])]; e.target.value = ""; if (f.length) scan(f); };
 }
 $("#btn-paste").onclick = () => { $("#paste-box").hidden = !$("#paste-box").hidden; if (!$("#paste-box").hidden) $("#paste-text").focus(); };
 $("#btn-reparse").onclick = () => { const t = $("#raw-text").value; if (t.trim()) applyParsed(t, true); };

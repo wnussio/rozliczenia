@@ -45,7 +45,10 @@ CODZIENNE UŻYCIE
   - Aplikacja porówna pozycje z „SUMA PLN” i pokaże, jeśli coś się nie zgadza.
   - Przy każdej pozycji wybierz: Wspólne / osoba / własny podział.
   - Kilka zdjęć / zrzutów jednego paragonu: skanuj po kolei w tym samym
-    paragonie – powtórzone pozycje z części wspólnej zostaną pominięte.
+    paragonie albo w „Galerii” zaznacz od razu kilka zdjęć – zostaną
+    przeczytane po kolei (od najstarszego), a powtórzone pozycje z części
+    wspólnej pominięte. Pod dymkiem widać części paragonu (📄 1, 📄 2…);
+    stuknięcie ✕ dwa razy usuwa pozycje ze złego zdjęcia.
 
 Kontrola błędów odczytu (pozycje z problemem mają pomarańczową ramkę)
   - ⚠ kwota ≠ ilość × cena z tej samej linii → przycisk „Użyj …” poprawia.

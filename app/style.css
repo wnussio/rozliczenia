@@ -149,6 +149,10 @@ input:focus,textarea:focus{border-color:color-mix(in srgb,var(--accent) 60%,var(
 .scan .bubble::after{border-right-color:var(--soft)}
 .scan-btns{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
 .scan-btns .btn{padding:10px 6px;font-size:.84rem;border-color:color-mix(in srgb,var(--accent) 40%,var(--line));color:var(--accent)}
+.parts{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:.82rem;color:var(--muted);font-weight:700}
+.parts .chip{display:inline-flex;gap:6px;align-items:center}
+.parts .chip .x{opacity:.7}
+.parts .chip[data-armed]{border-color:var(--bad,#e5484d);color:var(--bad,#e5484d)}
 .items{display:grid;gap:10px}
 .item{background:var(--surface);border:2px solid transparent;border-radius:18px;padding:10px;display:grid;gap:8px;box-shadow:var(--shadow)}
 .item-top{display:grid;grid-template-columns:34px 1fr 92px 34px;gap:6px;align-items:center}
