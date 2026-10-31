@@ -1,0 +1,15 @@
+rules_version = '2';
+// Reguły bazy Rozliczeń. Wklej całość w: Firebase → Firestore Database → Reguły → Opublikuj.
+// Każdy telefon loguje się anonimowo. Do bazy dostaje się tylko ten, kto zna jej 24-znakowy kod (z linku).
+// Nie da się wylistować istniejących baz, więc kodu nie można zgadnąć ani podejrzeć.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /households/{code} {
+      allow get, create, update: if request.auth != null && code.size() >= 20;
+      match /{coll}/{id} {
+        allow read, write: if request.auth != null && code.size() >= 20
+                           && coll in ['receipts', 'payments'];
+      }
+    }
+  }
+}

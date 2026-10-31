@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0d7a6f">
+  <meta name="description" content="Wspólne rachunki: skanuj paragony, przypisuj pozycje i sprawdzaj, kto komu ile oddaje.">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Rozliczenia">
+  <title>Rozliczenia</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon-192.png">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Rozliczenia</h1>
+      <p class="status" id="status"></p>
+    </div>
+    <nav class="tabs" id="tabs" hidden>
+      <button type="button" data-view="home" aria-pressed="true">Saldo</button>
+      <button type="button" data-view="settings" aria-pressed="false">Ustawienia</button>
+    </nav>
+  </header>
+  <div class="banner" id="update-banner" hidden>
+    Jest nowa wersja aplikacji.
+    <button type="button" class="btn small primary" id="update-btn">Odśwież</button>
+  </div>
+
+  <!-- BRAK KONFIGURACJI -->
+  <section id="v-missing" hidden>
+    <div class="empty">
+      <p><b>Baza danych nie jest jeszcze podłączona.</b></p>
+      <p>Uzupełnij plik <code>app/firebase-config.js</code> w repozytorium (instrukcja w <code>INSTRUKCJA.txt</code>).</p>
+    </div>
+  </section>
+
+  <!-- START: utwórz / dołącz -->
+  <section id="v-start" hidden>
+    <div class="start">
+      <div class="panel">
+        <h2>Pierwszy telefon</h2>
+        <p class="muted">Utwórz wspólną bazę. Potem wyślij link drugiej osobie, żeby dołączyła.</p>
+        <button type="button" class="btn primary big" id="btn-create">Utwórz wspólną bazę</button>
+      </div>
+      <div class="panel">
+        <h2>Drugi telefon</h2>
+        <p class="muted">Otwórz link od drugiej osoby albo wklej kod bazy.</p>
+        <div class="join-row">
+          <input id="join-code" placeholder="Kod bazy" autocomplete="off" autocapitalize="off" spellcheck="false">
+          <button type="button" class="btn primary" id="btn-join">Dołącz</button>
+        </div>
+      </div>
+      <div id="start-notice"></div>
+    </div>
+  </section>
+
+  <!-- HOME -->
+  <section id="v-home" hidden>
+    <div class="balance">
+      <span class="label">Do oddania</span>
+      <div class="bal-who" id="bal-who">Wczytuję…</div>
+      <div class="bal-amt num" id="bal-amt">—</div>
+      <div><button type="button" class="btn" id="btn-settle" hidden>Zapisz spłatę</button></div>
+      <div class="settle" id="settle" hidden>
+        <span id="settle-txt"></span>
+        <input id="settle-amt" inputmode="decimal" aria-label="Kwota spłaty">
+        <button type="button" class="btn primary" id="settle-ok">Zapisz</button>
+        <button type="button" class="btn" id="settle-cancel">Anuluj</button>
+      </div>
+    </div>
+    <div class="actions">
+      <button type="button" class="btn primary big" id="btn-new">📷 Paragon</button>
+      <button type="button" class="btn big" id="btn-quick">+ Kwota</button>
+    </div>
+    <div id="home-notice"></div>
+    <div class="list" id="list"></div>
+  </section>
+
+  <!-- KWOTA BEZ PARAGONU -->
+  <section id="v-quick" hidden>
+    <div class="ed">
+      <h2 class="ed-title" id="q-title">Kwota bez paragonu</h2>
+      <div class="field"><span class="label">Kto płacił?</span><div class="seg" id="q-payer"></div></div>
+      <div class="field"><label class="label" for="q-amt">Kwota</label><input id="q-amt" class="big-input num" inputmode="decimal" placeholder="0,00"></div>
+      <div class="field"><label class="label" for="q-desc">Za co</label><input id="q-desc" placeholder="np. Rachunek za prąd, pizza, bilety"></div>
+      <div class="field"><span class="label">Czyje to?</span><div class="chips" id="q-opts"></div></div>
+      <div class="field"><label class="label" for="q-date">Data</label><input id="q-date" type="date"></div>
+      <div class="notice" id="q-owe"></div>
+      <div id="q-check"></div>
+      <div id="q-del-wrap"><button type="button" class="btn danger" id="q-del">Usuń wpis</button></div>
+    </div>
+    <div class="bar"><div class="bar-in">
+      <span></span>
+      <div class="bar-btns">
+        <button type="button" class="btn" id="q-cancel">Anuluj</button>
+        <button type="button" class="btn primary" id="q-save">Zapisz</button>
+      </div>
+    </div></div>
+  </section>
+
+  <!-- PARAGON -->
+  <section id="v-edit" hidden>
+    <div class="ed">
+      <div class="field"><span class="label">Kto płacił?</span><div class="seg" id="payer"></div></div>
+      <div class="scan" id="scan-box">
+        <input type="file" id="scan-file" accept="image/*" capture="environment" hidden>
+        <input type="file" id="scan-gallery" accept="image/*" hidden>
+        <div class="scan-btns">
+          <button type="button" class="btn" id="btn-scan">📷 Zrób zdjęcie</button>
+          <button type="button" class="btn" id="btn-gallery">🖼 Z galerii</button>
+        </div>
+        <span class="muted small" id="scan-status">Zrób zdjęcie paragonu, a pozycje wpiszą się same. Możesz też dodać je ręcznie.</span>
+        <button type="button" class="btn" id="btn-scan-stop" hidden>Przerwij</button>
+      </div>
+      <div class="row2">
+        <div class="field"><label class="label" for="ed-store">Sklep</label><input id="ed-store" placeholder="np. Biedronka"></div>
+        <div class="field"><label class="label" for="ed-date">Data</label><input id="ed-date" type="date"></div>
+      </div>
+      <div class="field"><span class="label">Ustaw wszystkim pozycjom</span><div class="chips" id="bulk"></div></div>
+      <div class="items" id="items"></div>
+      <button type="button" class="btn" id="btn-add-item">+ Dodaj pozycję</button>
+      <div class="groups" id="groups"></div>
+      <div id="ed-check"></div>
+      <div id="ed-del-wrap"><button type="button" class="btn danger" id="btn-del">Usuń paragon</button></div>
+    </div>
+    <div class="bar"><div class="bar-in">
+      <div class="bar-sum">
+        <span class="muted small">Suma <span class="num" id="bar-total">0,00 zł</span></span>
+        <b id="bar-owe">—</b>
+      </div>
+      <div class="bar-btns">
+        <button type="button" class="btn" id="btn-cancel">Anuluj</button>
+        <button type="button" class="btn primary" id="btn-save">Zapisz</button>
+      </div>
+    </div></div>
+  </section>
+
+  <!-- USTAWIENIA -->
+  <section id="v-settings" hidden>
+    <div class="set">
+      <div class="field">
+        <span class="label">Osoby</span>
+        <div class="row2">
+          <input id="set-p0" aria-label="Osoba 1">
+          <input id="set-p1" aria-label="Osoba 2">
+        </div>
+      </div>
+      <div class="field">
+        <span class="label">Wybory przy pozycjach</span>
+        <div id="opt-fixed"></div>
+        <p class="muted small">Własne podziały: nazwa i jaką część płaci <b id="set-p0-name"></b> (w %). Reszta przypada drugiej osobie.</p>
+        <div id="opt-custom" class="stack"></div>
+        <button type="button" class="btn" id="btn-add-opt">+ Dodaj wybór</button>
+      </div>
+      <button type="button" class="btn primary big" id="btn-save-set">Zapisz ustawienia</button>
+      <div id="set-notice"></div>
+
+      <div class="field panel">
+        <span class="label">Wspólna baza</span>
+        <p class="muted small">Wyślij ten link drugiej osobie. Po otwarciu jej telefon połączy się z tą samą bazą. Kto ma link, widzi i może zmieniać rozliczenia.</p>
+        <code class="code" id="hh-code"></code>
+        <div class="row-btns">
+          <button type="button" class="btn" id="btn-share">Wyślij link</button>
+          <button type="button" class="btn" id="btn-copy">Kopiuj link</button>
+        </div>
+      </div>
+
+      <div class="field panel">
+        <span class="label">Skanowanie paragonów (Claude)</span>
+        <p class="muted small">Skanowanie używa klucza API Anthropic (console.anthropic.com → API Keys). Klucz zapisuje się tylko w tym telefonie. Jeden skan kosztuje kilka groszy.</p>
+        <input id="api-key" type="password" placeholder="sk-ant-..." autocomplete="off" spellcheck="false">
+        <div class="row-btns">
+          <button type="button" class="btn" id="btn-save-key">Zapisz klucz</button>
+          <button type="button" class="btn danger" id="btn-clear-key">Usuń klucz</button>
+        </div>
+        <div id="key-notice"></div>
+      </div>
+
+      <div class="field panel">
+        <span class="label">Ten telefon</span>
+        <button type="button" class="btn danger" id="btn-leave">Odłącz od bazy</button>
+        <p class="muted small">Dane zostają w bazie. Telefon można podłączyć ponownie tym samym linkiem.</p>
+      </div>
+    </div>
+  </section>
+</div>
+<script type="module" src="app.js"></script>
+</body>
+</html>
