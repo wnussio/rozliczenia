@@ -22,7 +22,20 @@ Czcionka [M PLUS Rounded 1c](https://github.com/coz-m/MPLUS_FONTS) (SIL OFL 1.1)
 ## Prywatność
 
 Aplikacja nie ma serwera ani bazy w chmurze i nie wysyła żadnych danych. Repozytorium zawiera tylko kod.
-Dane: `localStorage` w telefonie. OCR: [Tesseract.js](https://github.com/naptha/tesseract.js) 7.0.0 (Apache 2.0), dołączony w `app/vendor/tesseract/` razem z polskim modelem językowym, więc nic nie jest pobierane z obcych serwerów.
+Dane: `localStorage` w telefonie. Odczyt zdjęć w telefonie (nic nie jest wysyłane):
+- główny silnik: **PaddleOCR PP-OCRv4** (detekcja + rozpoznawanie, Apache 2.0) uruchamiany przez [onnxruntime-web](https://github.com/microsoft/onnxruntime) 1.30.0 (MIT) – `app/paddle.js`, modele w `app/models/`, runtime w `app/vendor/ort/` (ok. 30 MB, pobierane raz i trzymane offline);
+- zapasowy: [Tesseract.js](https://github.com/naptha/tesseract.js) 7.0.0 (Apache 2.0) w `app/vendor/tesseract/` – gdy PaddleOCR nie wystartuje na starym telefonie.
+
+## Jakość odczytu (testy 31.10.2026)
+
+| Zestaw | Wynik (suma pozycji = SUMA PLN co do grosza) |
+|---|---|
+| 119 polskich paragonów z Wikimedia Commons | **116/119 (97,5%)** – wcześniej z Tesseract ok. 80% |
+| zdjęcia papierowego paragonu użytkownika (Dino, także bokiem/do góry nogami) | **10/10** |
+| zrzuty z aplikacji Lidl Plus / Moja Biedronka (także złożone z kilku zrzutów) | 100% |
+| 40 paragonów × 9 symulacji aparatu (rozmycie, poruszenie, niska rozdzielczość, JPEG, szum, cień, przechylenie, tani telefon) | ok. 87% (JPEG/cień 100%, rozmycie 95%, 50% rozdz. 98%; najsłabiej silne poruszenie) |
+
+Gdy suma się nie zgadza, aplikacja czyta zdjęcie jeszcze raz z wyostrzeniem/powiększeniem i wybiera odczyt zgodny z SUMA PLN.
 
 ## Jak to jest zbudowane
 

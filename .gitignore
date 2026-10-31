@@ -3,3 +3,7 @@ Thumbs.db
 *.log
 samples/
 samples_web/
+dev-tests/
+samples_all/
+samples_deg/
+samples_degfail/

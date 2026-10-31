@@ -388,7 +388,7 @@ function itemChecks(it, diff = null) {
     return out; // historia jest pewniejsza niż ogólna tabela
   }
   // 2) tabela typowych cen + reguła ogólna dla nieznanych produktów (cena jednostkowa źle odczytana – już opisane wyżej)
-  const t = out.length ? null : checkTypicalPrice(it);
+  const t = out.length ? null : checkTypicalPrice(it, $("#ed-store")?.value || "");
   if (t) out.push({ text: t, warn: true });
   return out;
 }
@@ -571,6 +571,7 @@ async function scan(file) {
   setProgress((m) => {
     if (token !== scanToken) return;
     const p = m.progress ? ` ${Math.round(m.progress * 100)}%` : "";
+    if (m.paddle) { $("#scan-status").textContent = m.status; return; }
     const a = ocrState.attempt;
     $("#scan-status").textContent = a === "orientacja" ? "Sprawdzam, jak obrócone jest zdjęcie…" : m.status === "recognizing text"
       ? `Czytam paragon${a && a !== "1" ? ` (próba ${a}: szukam odczytu zgodnego z sumą)` : ""}…${p}`
@@ -743,6 +744,12 @@ async function checkUpdate(manual) {
 $("#btn-update").onclick = () => checkUpdate(true);
 setAnimations(LS.get("anim") !== "off");
 ambient();
+setTimeout(() => {
+  const c = navigator.connection;
+  if (!navigator.onLine || c?.saveData || /2g|3g/.test(c?.effectiveType || "") || c?.type === "cellular") return;
+  for (const f of ["vendor/ort/ort.wasm.min.js", "vendor/ort/ort-wasm-simd-threaded.wasm", "vendor/ort/ort-wasm-simd-threaded.mjs", "models/det.onnx", "models/rec.onnx", "models/keys.txt"])
+    fetch(f).catch(() => {});
+}, 6000);
 $("#set-anim").checked = LS.get("anim") !== "off";
 $("#set-anim").onchange = (e) => { LS.set("anim", e.target.checked ? "on" : "off"); setAnimations(e.target.checked); if (e.target.checked) rain(["🥟", "🍅", "🧀", "🥖"], 12); };
 if ("serviceWorker" in navigator) {

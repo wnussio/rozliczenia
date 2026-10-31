@@ -1,5 +1,9 @@
 // Odczyt paragonu ze zdjęcia w telefonie (Tesseract.js, pliki w vendor/): nic nie jest wysyłane.
 import { parseReceipt, scoreParse } from "./parser.js";
+import { paddleRead, paddleReread, setPaddleProgress, initPaddle } from "./paddle.js";
+// warianty ponownego odczytu (kolejność wg skuteczności w testach na pogorszonych zdjęciach)
+const REREAD = ["upsharp", "sharp"];
+export { initPaddle };
 
 let ocrWorker = null, ocrProgress = () => {};
 export const ocrState = { attempt: "" };
@@ -156,7 +160,7 @@ export async function prepImage(file) {
   return { bmp, r, invert: polarity(bmp, r) };
 }
 
-export function setProgress(fn) { ocrProgress = fn || (() => {}); }
+export function setProgress(fn) { ocrProgress = fn || (() => {}); setPaddleProgress((m) => ocrProgress({ ...m, paddle: true })); }
 export function terminate() { if (ocrWorker) { ocrWorker.terminate(); ocrWorker = null; } }
 export const workerReady = () => !!ocrWorker;
 // Kilka prób odczytu; wygrywa ta, której pozycje sumują się do „SUMA PLN” (a przy remisie – pewniejsza).
@@ -170,6 +174,27 @@ async function orientationScore(w, p, angle) {
 }
 // Kilka prób odczytu; wygrywa ta, której pozycje sumują się do „SUMA PLN” (a przy remisie – pewniejsza).
 export async function readReceipt(file, isCancelled = () => false) {
+  // Główny silnik: PaddleOCR (sieć neuronowa, dużo lepszy na zdjęciach). Tesseract tylko gdy Paddle nie ruszy.
+  try {
+    const r = await paddleRead(file, isCancelled);
+    if (!r) return null;
+    if (r.text.trim()) {
+      let best = { text: r.text, angle: r.angle, tries: 1, engine: "paddle", sc: scoreParse(parseReceipt(r.text)) };
+      // suma się nie zgadza → jeszcze raz z wyostrzeniem / powiększeniem; wygrywa odczyt zgodny z SUMA PLN
+      for (const v of REREAD) {
+        if (best.sc === 0 || isCancelled()) break;
+        const r2 = await paddleReread(file, r.angle, v, isCancelled);
+        if (!r2) return null;
+        const sc = scoreParse(parseReceipt(r2.text));
+        best.tries++;
+        if (sc < best.sc) best = { ...best, text: r2.text, sc };
+      }
+      return best;
+    }
+  } catch (e) { console.warn("PaddleOCR niedostępny, używam Tesseract:", e); }
+  return readTesseract(file, isCancelled);
+}
+async function readTesseract(file, isCancelled) {
   const p = await prepImage(file);
   const w = await getWorker();
   let best = null, n = 0;

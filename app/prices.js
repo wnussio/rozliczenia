@@ -22,7 +22,7 @@ const T = [
   [/grusz|sliwk|brzoskw|nektaryn|morel/, { kg: [3, 30], szt: [1, 25] }, "owoce"],
   [/cytryn|limon|pomarancz|mandaryn|grejpfrut/, { kg: [3, 25], szt: [0.5, 20] }, "cytrusy"],
   [/winogron|truskaw|malin|borowk|jagod|czeres|wisni/, { kg: [5, 80], szt: [3, 35] }, "owoce"],
-  [/awokado|mango|ananas|kiwi|granat/, { kg: [5, 50], szt: [1, 20] }, "owoce egzotyczne"],
+  [/awokado|mango|ananas|kiwi/, { kg: [5, 50], szt: [1, 20] }, "owoce egzotyczne"],
   // pieczywo
   [/chleb/, { szt: [2, 20], kg: [4, 40] }, "chleb"],
   [/bulk|bulecz|bagiet|rogal|kajzer|croissant|paczek|drozdzow/, { szt: [0.3, 12] }, "pieczywo"],
@@ -36,7 +36,7 @@ const T = [
   [/\bser\b|gouda|edam|cheddar|mozzarel|parmez|feta|camembert|brie|podlask|salami ser/, { szt: [2, 40], kg: [15, 120] }, "ser"],
   [/jaja|jajk/, { szt: [4, 30] }, "jajka"],
   // mięso i wędliny
-  [/filet|piers|kurc|kurcz|drob|udk|udziec|skrzyd|podudz/, { kg: [8, 50], szt: [5, 70] }, "drób"],
+  [/filet z kurc|filet z piers|filet drob|piers z kurc|piers kurc|\bkurc|kurcz|drob|\budk|udziec|skrzyd|podudz/, { kg: [8, 50], szt: [5, 70] }, "drób"],
   [/indyk/, { kg: [15, 60], szt: [5, 60] }, "indyk"],
   [/wiepr|schab|lopat|karkow|boczek|zeberk|golonk|szynka wiep|poledw/, { kg: [10, 70], szt: [5, 80] }, "wieprzowina"],
   [/wolow|antrykot|rostbef|stek/, { kg: [25, 200], szt: [8, 120] }, "wołowina"],
@@ -51,7 +51,7 @@ const T = [
   [/maka\b|maka |maka$/, { szt: [2, 15] }, "mąka"],
   [/cukier(?!k)/, { szt: [2.5, 15] }, "cukier"],
   [/sol\b|sol /, { szt: [0.8, 10] }, "sól"],
-  [/olej|oliwa/, { szt: [5, 60] }, "olej / oliwa"],
+  [/olej(?! ?(silnik|castrol|mobil|elf|shell|\d+w\d+))|oliwa/, { szt: [5, 60] }, "olej / oliwa"],
   [/ketchup|majonez|musztard|chrzan|sos|dressing|pesto/, { szt: [1.5, 25] }, "sos / przyprawa"],
   [/passata|koncentrat pomid|pomidory w puszce|przecier/, { szt: [1.5, 15] }, "przecier pomidorowy"],
   [/fasol|groszek|kukurydz|ciecierzyc|soczewic/, { szt: [1.5, 15] }, "strączki / konserwy"],
@@ -70,7 +70,7 @@ const T = [
   [/czekolad|schogetten|milka|wedel/, { szt: [2, 25] }, "czekolada"],
   [/cukierk|pralin|bombon|zelki|lizak|guma|zelp/, { szt: [0.5, 40], kg: [10, 120] }, "cukierki"],
   [/ciast|ciastk|wafel|herbatnik|baton|biszkopt|delicje|markiz/, { szt: [1, 30] }, "ciastka"],
-  [/chips|chrupk|paluszk|krakers|popcorn/, { szt: [1, 20] }, "przekąski"],
+  [/chips|chrupk|paluszk|krakers|popcorn/, { szt: [1, 40] }, "przekąski"],
   [/lody|kosteczki lod|lodow/, { szt: [1.5, 35] }, "lody"],
   // napoje
   [/woda/, { szt: [0.8, 20] }, "woda"],
@@ -78,7 +78,7 @@ const T = [
   [/piwo|tyskie|zywiec piwo|lech|perla|harnas|okocim|warka/, { szt: [2, 15] }, "piwo"],
   [/wodka|zoladkow|soplica|wyborow|zubrowk|finlandia|absolwent|stock/, { szt: [10, 120] }, "wódka"],
   [/wino|prosecco|szampan/, { szt: [8, 120] }, "wino"],
-  [/whisk|rum|gin\b|likier|brandy|koniak/, { szt: [20, 250] }, "alkohol mocny"],
+  [/whisk|\brum\b|\bgin\b|likier|brandy|koniak/, { szt: [20, 250] }, "alkohol mocny"],
   [/energet|red bull|monster|tiger/, { szt: [2, 12] }, "energetyk"],
   // chemia i dom
   [/papier toal|papier toalet|toal/, { szt: [4, 50] }, "papier toaletowy"],
@@ -116,7 +116,7 @@ const T = [
   [/drozdz/, { szt: [0.5, 8] }, "drożdże"],
   [/proszek do piecz|soda|cukier wanil|aromat/, { szt: [0.3, 8] }, "dodatki do pieczenia"],
   [/ocet|sos sojow|majeranek|lisc laur/, { szt: [1, 15] }, "przyprawy"],
-  [/konserw|mielonka|tusz|paprykarz|pasztet drob/, { szt: [2, 20] }, "konserwy"],
+  [/konserw|mielonka|tuszonk|paprykarz|pasztet drob/, { szt: [2, 20] }, "konserwy"],
   [/tunczyk|sardyn|szprot/, { szt: [3, 20] }, "konserwy rybne"],
   [/oliwki|kapary|suszone pomid/, { szt: [3, 25] }, "przetwory"],
   [/platki kukur|cini|nesquik|chocapic|corn flakes/, { szt: [4, 25] }, "płatki śniadaniowe"],
@@ -146,19 +146,32 @@ const T = [
   [/papierosy|tyton|iqos|heets|terea|wklady do|liquid/, { szt: [8, 40] }, "wyroby tytoniowe"],
   [/gazeta|czasopism|kart.*podarun|doladowan/, { szt: [2, 300] }, "inne"],
   [/kwiat|bukiet|roz[ae]|tulipan|doniczk|ziemia do/, { szt: [2, 120] }, "kwiaty / ogród"],
+  // motoryzacja i usługi
+  [/olej (silnik|castrol|mobil|elf|shell)|\d+w\d+|castrol|akumul|filtr (oleju|powietrza|kabin|paliwa)|swiec[ea] zaplon|wycieracz|plyn do spryskiw|opon|klocki hamul|zarowka h\d/, { szt: [5, 3000] }, "motoryzacja"],
+  [/wymiana|przeglad|mycie|woskowan|naprawa|uruchomienie|serwis|montaz|strzyzenie|fryzjer|usluga|transport|przesylk|przesyeka|dostaw|koszt (transportu|powiadomienia)/, { szt: [0.5, 3000] }, "usługi"],
+  // AGD i dom
+  [/zelazk|odkurzacz|suszark|blender|mikser|toster|ekspres|czajnik elektr|robot kuch|frytkownic|lodowk|pralk|zmywark|mikrofal/, { szt: [20, 8000] }, "AGD"],
+  [/farb|magnat|dulux|sniezk|beckers|tikkurila|emulsj|lakier|grunt|szpachl|pedzel|walek mal/, { szt: [2, 2000] }, "farby i malowanie"],
+  [/ziemia|nawoz|zwir|grys|kora|tyczk|doniczk|nasion|siatka|sadzon|roslin|storczyk|kwiat|wiazank|bukiet|cebulki/, { szt: [0.5, 1500] }, "ogród i kwiaty"],
+  [/klucz|imbus|zarowk|led\b|przedluzacz|gniazd|kabel|bateri|folia|worki na smieci|worek/, { szt: [0.5, 1500] }, "drobne do domu"],
+  [/prasa|gazeta|czasopism|ksiazk|encyklop|kalendarz|zeszyt|dlugopis|marker|kredk|papier ksero|koperta|gosc niedzielny|tygodnik/, { szt: [0.5, 500] }, "prasa / książki / papiernicze"],
+  [/perfum|edp|edt|woda toalet|old spice|deo|dezodorant|antyperspir/, { szt: [3, 800] }, "perfumy / kosmetyki"],
+  [/tusz|toner|cartridge|brother|hp \d|canon/, { szt: [10, 800] }, "tusze i tonery"],
+  [/torebk|torba prezent|ozdob|dekorac|artykul deko|swiateczn|choink|bombk|kalendarz adwent/, { szt: [0.5, 500] }, "dekoracje / prezenty"],
+  [/bilet|ulgowy|normalny|seans|kino|wstep|parking/, { szt: [1, 500] }, "bilety"],
   // sklepy niespożywcze (JYSK, IKEA, Pepco, Decathlon, RTV…) – szerokie widełki
   [/koldr|poduszk|poszew|posciel|przescierad|materac|koc\b|narzut|dywan|zaslon|firan|recznik(?!\s*papier|i)|obrus/, { szt: [5, 2000] }, "tekstylia domowe"],
   [/mebl|krzesl|stol|szafk|regal|lozk|sofa|fotel|komod|lustr|lamp/, { szt: [10, 5000] }, "meble / wyposażenie"],
   [/garnek|patelni|talerz|kubek|szklank|sztuc|noz\b|deska do|pojemnik|termos|czajnik/, { szt: [2, 800] }, "kuchnia"],
   [/buty|obuw|kurtk|spodni|bluz|koszul|sukien|spodnic|sweter|t-shirt|skarpet|majtk|bielizn|czapk|rekawiczk|szalik|legginsy|piżam|pizam/, { szt: [3, 1500] }, "ubrania / obuwie"],
   [/ladowark|kabel|sluchawk|glosnik|myszk|klawiatur|pendrive|karta pam|powerbank|telefon|etui|bateri/, { szt: [3, 5000] }, "elektronika"],
-  [/zabawk|lego|klock|lalk|puzzl|gra plansz|pluszak|samochodzik/, { szt: [3, 1500] }, "zabawki"],
+  [/zabawk|lego|klock|lalk|laleczk|puzzl|gra plansz|pluszak|samochodzik|garaz|figurk|kolorowank/, { szt: [3, 1500] }, "zabawki"],
   [/rower|kask|pilka|rakiet|hantl|mata do|namiot|spiwor|plecak|torba sport/, { szt: [5, 5000] }, "sport"],
   [/farba|wkret|srub|wiertl|narzedz|mlotek|tasma|silikon|klej|panel|plytk|cement|zaprawa/, { szt: [1, 3000] }, "budowlane / narzędzia"],
   [/\blek|tabl|kaps|syrop|masc|krople|aerozol|spray do nosa|witamin|suplement|apap|ibuprom|ibuprofen|paracetamol|nurofen|mucosolvan|erdomed|sinulan|strepsils/, { szt: [2, 300] }, "leki / suplementy"],
   [/bilet|kino|seans|parking|oplat/, { szt: [1, 500] }, "usługi / bilety"],
   [/pizza|kebab|burger|frytki|zestaw|obiad|danie|kawa na wynos|latte|cappuccino|herbata na/, { szt: [3, 250] }, "jedzenie na mieście"],
-  [/paliwo|benzyn|diesel|\bon\b|pb95|pb 95|pb98|lpg|adblue/, { szt: [5, 1500], kg: [3, 12] }, "paliwo"],
+  [/paliwo|benzyn|diesel|olej napedowy|efecta|verva|pb95|pb 95|pb98|\blpg\b|adblue/, { szt: [5, 1500], kg: [3, 12] }, "paliwo"],
   [/kaucj/, { szt: [0.1, 2] }, "kaucja"],
 ];
 
@@ -166,16 +179,17 @@ const norm = (s) => String(s || "").toLowerCase().replace(/ł/g, "l").normalize(
 const zl = (x) => x.toLocaleString("pl-PL", { minimumFractionDigits: x % 1 ? 2 : 0, maximumFractionDigits: 2 });
 
 // Zwraca opis, jeśli cena wygląda nietypowo, np. „pomidory zwykle 2–30 zł/kg, tu 89,00 zł/kg”.
-export function checkTypicalPrice(it) {
+const NON_FOOD = /smyk|empik|media ?markt|rtv|euro|ikea|castorama|leroy|\bobi\b|decathlon|jysk|pepco|action|ccc|deichmann|hm\b|reserved|apteka|orlen|bp\b|shell|circle|moya|kino|cinema|rossmann|hebe/i;
+export function checkTypicalPrice(it, store = "") {
   // OCR myli „l” z „1” i „o” z „0” w środku słowa: „M1eko” → „mleko”, „s0k” → „sok”
-  const n = norm(it.name).replace(/([a-z])[1|]([a-z])/g, "$1l$2").replace(/([a-z])0([a-z])/g, "$1o$2");
+  const n = norm(it.name).replace(/([a-z])[1|]([a-z])/g, "$1l$2").replace(/([a-z])0([a-z])/g, "$1o$2").replace(/(^|\s)0([a-z]{2})/g, "$1o$2");
   if (!n || !it.g) return null;
   const hit = T.find(([re]) => re.test(n));
   const weighedAny = it.qty && it.unit && it.qty % 1 !== 0;
   if (!hit) { // produkt spoza tabeli: łapiemy tylko wyraźne błędy (np. przesunięty przecinek)
-    if (weighedAny && it.unit > 15000) return `Nietypowa cena: ${zl(it.unit / 100)} zł/kg – sprawdź, czy przecinek jest w dobrym miejscu`;
+    if (weighedAny && it.unit > 25000) return `Nietypowa cena: ${zl(it.unit / 100)} zł/kg – sprawdź, czy przecinek jest w dobrym miejscu`;
     const per = (it.unit && it.qty ? it.unit : it.g) / 100;
-    if (!weighedAny && per > 150) return `Bardzo wysoka cena jak na jedną pozycję (${zl(per)} zł) – sprawdź`;
+    if (!weighedAny && per > 300 && !NON_FOOD.test(store || "")) return `Bardzo wysoka cena jak na jedną pozycję (${zl(per)} zł) – sprawdź`;
     return null;
   }
   const [, r, label] = hit;
@@ -184,6 +198,6 @@ export function checkTypicalPrice(it) {
   if (weighed && r.kg) { price = it.unit / 100; range = r.kg; unit = "zł/kg"; }
   else if (r.szt) { price = (it.unit && it.qty ? it.unit : it.g) / 100; range = r.szt; unit = "zł/szt."; }
   else return null;
-  if (price >= range[0] * 0.8 && price <= range[1] * 1.25) return null; // margines na drogie marki i promocje
+  if (price >= range[0] * 0.3 && price <= range[1] * 1.3) return null; // margines na promocje, małe opakowania i drogie marki
   return `Nietypowa cena: ${label} zwykle ${zl(range[0])}–${zl(range[1])} ${unit}, tu ${zl(price)} ${unit}`;
 }

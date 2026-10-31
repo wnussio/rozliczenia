@@ -33,8 +33,12 @@ CODZIENNE UŻYCIE
 ----------------
 📷 Paragon
   - „Zdjęcie” albo „Galeria”: telefon odczyta pozycje, ceny, rabaty, sklep,
-    datę i sumę. Pierwszy odczyt trwa dłużej (pobiera się ok. 7 MB plików do
-    rozpoznawania tekstu, potem działają offline).
+    datę i sumę (sieć neuronowa PaddleOCR – działa w telefonie, nic nie wysyła).
+    Pierwszy odczyt trwa dłużej: pobiera się ok. 30 MB modelu (najlepiej na
+    Wi‑Fi; aplikacja sama pobiera go w tle po uruchomieniu na Wi‑Fi). Potem
+    działa offline. Odczyt trwa zwykle 10–30 s, przy słabym zdjęciu dłużej
+    (aplikacja czyta je drugi raz z wyostrzeniem).
+  - Zdjęcie może być bokiem albo do góry nogami – aplikacja sama je obróci.
   - „Wklej tekst”: zamiast zdjęcia możesz skopiować tekst z paragonu
     (iPhone: zdjęcie → Tekst na żywo → Kopiuj; Android: Google Lens → Tekst)
     i wkleić go. Często jest dokładniejsze.

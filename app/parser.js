@@ -3,12 +3,12 @@
 
 const L = "A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż";
 const LETTERS = new RegExp(`[${L}]`, "g");
-const AMOUNT = /-?\d{1,5}[.,]\d{2}(?![\d%])/g;
+const AMOUNT = /-?\d{1,5}[.,]\d{2}(?![\d%]|\s?(?:[kK][gG]|[mM][lL]|[lL]|[mM]|[gG]|[cC][mM]|[mM][mM])\b)/g;
 // Koniec listy zakupów: podsumowania podatku, sumy, płatności.
-const STOP = /SPRZEDA|^\W?[S59][pP]\.?\s?[O0o][pP]\b|\bSP\.\s?(OP|ZW)\b|PODSU[MN]|SUBTOTAL|\bRAZEM\b|SPRZ\.?\s*OPOD|OPODAT|\bP\s?T\s?U\b|^P[IT1l][UJ]\b|\bS?UMA\s*(PLN|PTU|:)|\bSUMA\b|\bRAZEM\b|DO\s*ZAP|\bKWOTA\s+[A-G]\b|ROZLICZ|P[ŁL]ATNO|P[ŁL]ATN\.|GOT[ÓO]W|\bKARTA\b|\bKARTY\b|RESZTA|NIEFISK|\bOG[ÓO][ŁL]EM\b|PODSUMOW/i;
+const STOP = /SPRZEDA|^[S59][pP]\.?\s?([O0o][pP]|Z[WH]|[A-Ga-g])\b|\bSPRZED\.|\bSP\.?\s?Z[WH]\b|^\W?[S59][pP]\.?\s?[O0o][pP]\b|\bSP\.\s?(OP|ZW)\b|PODSU[MN]|SUBTOTAL|\bRAZEM\b|SPRZ\.?\s*OPOD|OPODAT|\bP\s?T\s?U\b|^P[IT1l][UJ]\b|\bS?UMA\s*(PLN|PTU|:)|\bSUMA\b|\bRAZEM\b|DO\s*ZAP|\bKWOTA\s+[A-G]\b|ROZLICZ|P[ŁL]ATNO|P[ŁL]ATN\.|GOT[ÓO]W|\bKARTA\b|\bKARTY\b|RESZTA|NIEFISK|\bOG[ÓO][ŁL]EM\b|PODSUMOW/i;
 const DISCOUNT = /RABA[TLI1]\b|RABAT|OPUST|PROMOC|OBNI[ŻZ]K|UPUST|ZNI[ŻZ]K|KUPON|VOUCHER|GRATIS|LIDL\s*PLUS/i;
-const DISCOUNT_SUMMARY = /[ŁL][ĄA]CZN|SUMA|RAZEM|W\s*TYM|OSZCZ[ĘE]DZ|ZAOSZCZ/i; // „Opust łącznie”, „Suma rabatów”
-const QTY_G = /(?:^|[\s.])\d+(?:[.,]\d+)?\s*(?:sz[tl1]\.?|kg|op\.?|l)?\s*[x×*][:.]?\s*-?\d{1,5}[.,]\d{1,2}(?!\d)/gi;
+const DISCOUNT_SUMMARY = /[ŁLE][ĄA]CZN|ACZNIE|SUMA|RAZEM|W\s*TYM|OSZCZ[ĘE]DZ|ZAOSZCZ/i; // „Opust łącznie”, „Suma rabatów”
+const QTY_G = /(?:^|\s|(?<=[A-Za-z]\.))\d+(?:[.,]\d+)?\s*(?:sz[tl1]\.?|kg|op\.?|l)?\s*[x×*][:.]?\s*-?\d{1,5}[.,]\d{1,2}(?!\d)/gi;
 // pozycja ostatniego „ilość × cena” w linii (pierwsze bywa częścią nazwy, np. „Woda 6x1,5L”)
 const QTY_NOX = /(?:^|\s)(\d{1,2}|\d[.,]\d{3})\s+(\d{1,5}[.,]\d{2})\s+-?\d{1,5}[.,]\d{2}\s*[A-G]?\s*$/i;
 const qtyPos = (l) => {
@@ -38,7 +38,8 @@ const letterCount = (s) => (s.match(LETTERS) || []).length;
 
 // Typowe pomyłki OCR w kwotach: „3:00”, „3;00”, „3, 00”, „- 3,00”, „3,O0”, „1l,99”.
 function normalize(line) {
-  let l = line.replace(/[—–−]/g, "-").replace(/\s+/g, " ").trim();
+  let l = line.replace(/[—–−]/g, "-").replace(/℃/g, "C").replace(/[，、]/g, ",").replace(/[：]/g, ":").replace(/[．。]/g, ".")
+    .replace(/[（]/g, "(").replace(/[）]/g, ")").replace(/[*＊✕]/g, "*").replace(/[\u4e00-\u9fff]/g, " ").replace(/\s+/g, " ").trim();
   l = l.replace(/(^|\s)([-\dOoIl|]{1,6}[.,:;][\dOoIl|]{2})(?=[A-G]?(\s|$))/g, (m, pre, tok) =>
     pre + tok.replace(/[Oo]/g, "0").replace(/[Il|]/g, "1"));
   // „3:00” → „3,00”, ale nie godzina w linii z datą („2026-10-19 17:04”)
@@ -46,6 +47,15 @@ function normalize(line) {
     l = l.replace(/-(\d{1,4})\s?[:;]\s?(\d{2})(?![\d%:])/g, "-$1,$2");
     l = l.replace(/(\S.*\s)(\d{1,4})\s?[:;]\s?(\d{2})(\s?[A-G])?$/, (m, a, b, c, d) => (/^\d{1,2}$/.test(b) && /^\s*\d{1,2}[:;]\d{2}/.test(m) ? m : `${a}${b},${c}${d || ""}`));
   }
+  // sklejone kwoty bez spacji („1*99.9999.99B”, „2×1,993,98A”) – rozdziel po dwóch cyfrach groszy
+  for (let k = 0; k < 3; k++) l = l.replace(/(\d[.,]\d{2})(\d{1,5}[.,]\d{2})(?!\d\d)/g, "$1 $2");
+  l = l.replace(/([x×*]\s?\d{1,5}[.,]\d{2})(\d{1,5}[.,]\d)([A-G]?)$/i, "$1 $2$3");
+  // wartość bez przecinka sklejona z ceną: „x11,991228C” → „x11,99 12,28C”
+  l = l.replace(/([x×*]\s?\d{1,5}[.,]\d{2})(\d{1,3})(\d{2})([A-G]?)$/i, "$1 $2,$3$4");
+  l = l.replace(/\)(\d)/g, ") $1").replace(/([x×*])(\d)/gi, "$1 $2").replace(/(\d)([x×*])(?=\s?\d)/gi, "$1 $2");
+  // litera stawki VAT przyklejona do ilości: „C0,512 × 13,99”
+  l = l.replace(/(\s)[A-G](\d[.,]\d{3}\s?[xX×*])/g, "$1$2");
+  l = l.replace(/([A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż])(\d[.,]\d{3}\s?[xX×*])/g, "$1 $2");
   // litera stawki VAT odczytana jako cyfra na końcu linii: „2,744” → „2,74 A”, „7,998” → „7,99 B”
   l = l.replace(/(\d[.,]\d{2})([4805])\W{0,2}$/, (m, a, d) => `${a} ${{ 4: "A", 8: "B", 0: "C", 5: "C" }[d]}`);
   l = l.replace(/(\d)([.,])\s(\d{2})(?![\d%-])/g, "$1$2$3"); // „3, 00” → „3,00”, ale nie „122, 63-700” (adres)
@@ -56,7 +66,7 @@ function normalize(line) {
 }
 
 function cleanName(s) {
-  let n = s.replace(/\S*\d{8,}\S*/g, " ") // kod kreskowy EAN w linii nazwy (Intermarché)
+  let n = s.replace(/\d{8,}/g, " ") // kod kreskowy / kod produktu w linii nazwy (Intermarché, Empik)
     .replace(/[|_~^"'`]+/g, " ").replace(/\s+/g, " ").trim().replace(/(\s+[A-Ga-g]{1,2}\.?)+$/, "");
   n = n.replace(new RegExp(`^[^0-9${L}]+`), "").replace(/[\s.,:;*x×-]+$/i, "");
   if (n === n.toUpperCase()) n = n.toLowerCase(); // „MLEKO UHT” → „mleko uht”
@@ -88,7 +98,7 @@ export function parseReceipt(raw) {
     const a = [...l.matchAll(AMOUNT)];
     if (!a.length) continue;
     const v = toGr(a[a.length - 1][0]);
-    if (/SPRZEDA|SPRZ\.?\s*OPOD|OPODATK|ZWOLNION|\bSP\.\s?(OP|ZW)\b/i.test(l) && !/PTU|VAT\s*\d/i.test(l)) { vat += v; vatN++; }
+    if (/SPRZEDA|\bSPRZED\.|SPRZ\.?\s*OPOD|OPODATK|ZWOLNION|\bSP\.\s?(OP|Z[WH])\b/i.test(l) && !/PTU|VAT\s*\d/i.test(l)) { vat += v; vatN++; }
     else if (paid == null && /\bKARTA\b|KARTY|P[ŁL]ATNO[ŚS][ĆC]|GOT[ÓO]WK|BLIK|DEBIT|VISA|MASTERCARD/i.test(l) && !/RESZTA/i.test(l)) paid = v;
   }
   const others = [vatN ? vat : null, paid].filter((x) => x != null);
@@ -97,7 +107,7 @@ export function parseReceipt(raw) {
     else if (total == null && paid != null) total = paid; // suma ze „Sprzedaży opodatkowanej” – tylko gdy potwierdzą ją pozycje (niżej)
   }
 
-  const start = lines.findIndex((l) => /PARAGON\s*(NIE)?\s*FISK/i.test(l));
+  const start = lines.findIndex((l) => /PARAG[O0]I?N\s*(NIE)?\s*F\s?[I1l]\s?S\s?K/i.test(l));
   const headText = lines.slice(0, Math.max(start, 10)).join(" ");
   const chain = CHAINS.find(([re]) => re.test(headText));
   const storeLine = lines.slice(0, start >= 0 ? start : 3).find((l) => letterCount(l) >= 4 && !/NIP|ul\.|al\.|tel|^\d|BDO|PARAGON/i.test(l) && !(MONTHS.test(l) && /20\d{2}/.test(l)));
@@ -117,9 +127,11 @@ export function parseReceipt(raw) {
   for (let i = start + 1; i < lines.length; i++) {
     let l = lines[i];
     if (DATE_RE.test(l) && letterCount(l) < 4) continue; // linia z datą i godziną
-    if (/\b\d{2}-\d{3}\b|\b(ul|al|os|pl)\.\s|\bNIP\b|\bBDO\b|\bREGON\b/i.test(l)) continue; // adres, NIP, kod pocztowy
+    if (/\b\d{2}-\d{3}\b|\b(ul|al|os|pl)\.\s?[A-ZĄĆĘŁŃÓŚŹŻ]|\bNIP\b|\bBDO\b|\bREGON\b/i.test(l)) continue; // adres, NIP, kod pocztowy
     if (/\b20\d{2}\b/.test(l) && MONTHS.test(l) && !/\d[.,]\d{2}/.test(l)) continue; // nagłówek aplikacji sklepu: „19 Października 2026”
+    if (/\d{8,}/.test(l) && !/[x×*]\s?\d/i.test(l) && !/(^|\s)-\d/.test(l)) l = l.replace(/\d+[.,]\d+/g, " ");
     const amounts = [...l.matchAll(AMOUNT)];
+    if (/UWZGL/i.test(l)) continue; // „Uwzględniono rabat” – rabat już w cenie pozycji
     const isDiscount = DISCOUNT.test(l);
 
     if (isDiscount && DISCOUNT_SUMMARY.test(l)) { flushCont(); pendingDiscount = false; skipSummary = !amounts.length; continue; } // podsumowanie rabatów – już odjęte
@@ -127,7 +139,7 @@ export function parseReceipt(raw) {
     skipSummary = false;
     if (STOP.test(l)) { flushCont(); if (items.length) break; continue; }
     if (/(^|\D)\d{1,2}[.,]\d{2}\s*%(?!\d)/.test(l)) continue; // stawki VAT („PTU A 23,00 %”), ale nie „%0.00” (zniekształcona kwota)
-    if (/BEZ\s*RECEP|RYCZA[ŁL]T|REFUND|ODP[ŁL]ATNO|\bPE[ŁL]NOP[ŁL]ATN/i.test(l)) {
+    if (/\bB\S{1,2}\s*RECEP|RECEPT[Y)]|RYCZA[ŁL]T|REFUND|ODP[ŁL]ATNO|\bPE[ŁL]NOP[ŁL]ATN/i.test(l)) {
       // drugi odczyt kwoty poprzedniego leku – gdy się różni, posłuży do sprawdzenia z sumą
       if (amounts.length && items.length) {
         const last = items[items.length - 1], v = toGr(amounts[amounts.length - 1][0]);
@@ -157,7 +169,11 @@ export function parseReceipt(raw) {
     const nameLetters = letterCount(nameRaw.replace(UNIT_TOKENS, " "));
 
     // Linia z samą ujemną kwotą (np. „-3,00 C”) albo kwota po „Rabat” w poprzedniej linii.
-    if (pendingDiscount || (value < 0 && nameLetters < 3)) { discountLast(value); pendingDiscount = false; flushCont(); continue; }
+    if (pendingDiscount && value > 0 && nameLetters < 3 && items.length && value < items[items.length - 1].g) {
+      items[items.length - 1].g = value; pendingDiscount = false; flushCont(); continue; // cena po rabacie
+    }
+    if ((pendingDiscount || value < 0) && nameLetters < 3) { discountLast(value); pendingDiscount = false; flushCont(); continue; }
+    pendingDiscount = false;
     if (value < 0) { discountLast(value); flushCont(); continue; }
 
     // Sama kwota równa cenie poprzedniej pozycji po rabacie (aplikacja Biedronki: „12.99C”) – to nie nowa pozycja.

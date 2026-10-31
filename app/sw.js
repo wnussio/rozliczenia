@@ -3,8 +3,8 @@
 // __VERSION__ podmienia GitHub Actions przy publikacji; nowa wersja = nowa pamięć podręczna.
 const VERSION = "__VERSION__";
 const CACHE = `rozliczenia-${VERSION}`;
-const VENDOR = "rozliczenia-vendor-tesseract-7.0.0"; // duże pliki OCR – pobierane raz, przy pierwszym skanie
-const FILES = ["./", "index.html", "style.css", "app.js", "parser.js", "ocr.js", "prices.js", "fx.js", "mascot.js", "fonts/fonts.css", "fonts/mplus-rounded-400-latin.woff2", "fonts/mplus-rounded-400-latin-ext.woff2", "fonts/mplus-rounded-700-latin.woff2", "fonts/mplus-rounded-700-latin-ext.woff2", "fonts/mplus-rounded-800-latin.woff2", "fonts/mplus-rounded-800-latin-ext.woff2", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
+const VENDOR = "rozliczenia-vendor-ocr-2"; // duże pliki OCR (PaddleOCR, onnxruntime, Tesseract) – pobierane raz
+const FILES = ["./", "index.html", "style.css", "app.js", "parser.js", "ocr.js", "prices.js", "fx.js", "mascot.js", "paddle.js", "fonts/fonts.css", "fonts/mplus-rounded-400-latin.woff2", "fonts/mplus-rounded-400-latin-ext.woff2", "fonts/mplus-rounded-700-latin.woff2", "fonts/mplus-rounded-700-latin-ext.woff2", "fonts/mplus-rounded-800-latin.woff2", "fonts/mplus-rounded-800-latin-ext.woff2", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", (event) => {
   // cache: "reload" – zawsze świeże pliki z serwera, nie stare kopie z pamięci przeglądarki
@@ -27,7 +27,7 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
 
-  if (url.pathname.includes("/vendor/")) {
+  if (url.pathname.includes("/vendor/") || url.pathname.includes("/models/")) {
     event.respondWith(caches.open(VENDOR).then(async (cache) => {
       const hit = await cache.match(req, { ignoreSearch: true });
       if (hit) return hit;
