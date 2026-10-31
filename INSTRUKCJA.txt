@@ -37,7 +37,8 @@ iPhone (Safari): otwórz link → Udostępnij (kwadrat ze strzałką) → „Do 
 
 C. PIERWSZE URUCHOMIENIE
 ------------------------
-1. Pierwszy telefon: „Utwórz wspólną bazę”.
+1. Pierwszy telefon: wpisz dwa imiona (domyślnie „Osoba 1” i „Osoba 2”;
+   zmienisz je potem w Ustawieniach) → „Utwórz wspólną bazę”.
 2. Ustawienia → „Wyślij link” → wyślij go drugiej osobie (SMS, Messenger…).
 3. Drugi telefon: otwórz link w Chrome / Safari (nie w Messengerze!) →
    „Dołącz” → potem zainstaluj aplikację jak w punkcie B.
@@ -63,8 +64,8 @@ E. JAK LICZONE JEST SALDO
 -------------------------
 Przy każdej pozycji wybierasz, czyja jest:
 - Wspólne → druga osoba oddaje płacącemu połowę,
-- rzecz płacącego (np. Marcin płaci za swoje części do roweru) → nic do oddania,
-- rzecz drugiej osoby (np. Monika kupuje Marcinowi coś do roweru) → oddaje całość,
+- rzecz płacącego (np. Osoba 1 płaci za swoje części do roweru) → nic do oddania,
+- rzecz drugiej osoby (np. Osoba 2 kupuje Osobie 1 coś do roweru) → oddaje całość,
 - własne podziały (Ustawienia), np. „Dom 60/40”.
 „+ Kwota” służy do wydatków bez paragonu (rachunek za prąd, pizza, bilety).
 „Zapisz spłatę”, gdy oddacie sobie pieniądze. Saldo wtedy się zeruje.

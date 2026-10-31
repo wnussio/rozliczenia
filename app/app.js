@@ -28,7 +28,7 @@ const LS = {
 function notice(sel, text, kind = "") { $(sel).innerHTML = text ? `<div class="notice ${kind}">${esc(text)}</div>` : ""; }
 
 /* ---------- stan ---------- */
-const DEFAULT_CONFIG = { people: ["Marcin", "Monika"], options: [
+const DEFAULT_CONFIG = { people: ["Osoba 1", "Osoba 2"], options: [
   { id: "shared", label: "Wspólne", share: 50, fixed: true },
   { id: "p0", person: 0, share: 100, fixed: true },
   { id: "p1", person: 1, share: 0, fixed: true },
@@ -111,7 +111,9 @@ $("#btn-create").onclick = async () => {
   const code = newCode();
   $("#btn-create").disabled = true;
   household = code;
-  write(setDoc(hhDoc(), { ...structuredClone(DEFAULT_CONFIG), createdAt: Date.now() }), "#home-notice");
+  const people = [$("#new-p0").value.trim() || DEFAULT_CONFIG.people[0], $("#new-p1").value.trim() || DEFAULT_CONFIG.people[1]];
+  config = { ...structuredClone(DEFAULT_CONFIG), people };
+  write(setDoc(hhDoc(), { ...config, createdAt: Date.now() }), "#home-notice");
   useHousehold(code);
   $("#btn-create").disabled = false;
 };

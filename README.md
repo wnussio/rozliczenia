@@ -7,7 +7,7 @@ Aplikacja na telefon (PWA) do rozliczania wspólnych zakupów dwóch osób.
 ## Co robi
 
 - **Paragon**: zdjęcie paragonu → Claude odczytuje pozycje, ceny (po rabatach), sklep, datę i sprawdza zgodność z „SUMA PLN”.
-- Każdą pozycję oznaczasz jako **Wspólne / Marcin / Monika** albo własny podział (np. 60/40).
+- Każdą pozycję oznaczasz jako **Wspólne / Osoba 1 / Osoba 2** (imiona ustawia się przy tworzeniu bazy i w Ustawieniach) albo własny podział (np. 60/40).
 - **+ Kwota**: wydatek bez paragonu.
 - **Saldo**: kto komu ile oddaje; **spłaty** je zerują. Historia pogrupowana po miesiącach.
 - **Synchronizacja** między telefonami przez wspólną bazę (link z kodem). Działa offline.
