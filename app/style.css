@@ -4,7 +4,7 @@
 :root{
   --sky1:#ffe9f3; --sky2:#ecebff; --sky3:#e3f6ff;
   --bg:#fff6fb; --surface:#ffffff; --surface2:#fff9fd; --ink:#3d2b52; --muted:#8a7a9f; --line:#f1dcec; --soft:#fbeef6;
-  --p0:#3d8bff; --p1:#ff4f9a; --sh:#16b39a; --cx:#8f6bff; --warn:#e07a00; --bad:#e23b5b;
+  --p0:#3d8bff; --p1:#ff4f9a; --sh:#16b39a; --cx:#8f6bff; --warn:#e07a00; --bad:#e23b5b; --no:#8a8496;
   --accent:#ff5fa2; --accent2:#9b7bff; --glow:rgb(255 95 162 / .22);
   --shadow:0 6px 18px rgb(214 120 180 / .16), 0 1px 3px rgb(120 80 160 / .08);
   --petal:#ffc2dc; --star:#fff;
@@ -20,7 +20,7 @@
 @media (prefers-color-scheme: dark){:root{
   --sky1:#1b1436; --sky2:#231a46; --sky3:#16213f;
   --bg:#171230; --surface:#251d44; --surface2:#2b2250; --ink:#f6edff; --muted:#b9a8d6; --line:#3b2f63; --soft:#2f2656;
-  --p0:#7fb4ff; --p1:#ff8cc0; --sh:#4fe0c4; --cx:#b9a1ff; --warn:#ffb359; --bad:#ff8aa0;
+  --p0:#7fb4ff; --p1:#ff8cc0; --sh:#4fe0c4; --cx:#b9a1ff; --warn:#ffb359; --bad:#ff8aa0; --no:#a9a3b5;
   --accent:#ff8cc0; --accent2:#b9a1ff; --glow:rgb(255 140 192 / .25);
   --shadow:0 8px 24px rgb(0 0 0 / .35), 0 1px 3px rgb(0 0 0 / .3);
   --petal:#ff9ccb; --star:#fff6c9;
@@ -161,7 +161,7 @@ input:focus,textarea:focus{border-color:color-mix(in srgb,var(--accent) 60%,var(
 .x{border:0;background:none;color:var(--muted);font-size:1.3rem;cursor:pointer;height:34px;border-radius:50%}
 .chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .chip{--c:var(--cx);border:2px solid var(--line);background:transparent;color:var(--muted);padding:5px 12px;border-radius:999px;font-weight:800;font-size:.82rem;cursor:pointer}
-.chip.c-p0{--c:var(--p0)} .chip.c-p1{--c:var(--p1)} .chip.c-sh{--c:var(--sh)} .chip.c-cx{--c:var(--cx)}
+.chip.c-p0{--c:var(--p0)} .chip.c-p1{--c:var(--p1)} .chip.c-sh{--c:var(--sh)} .chip.c-cx{--c:var(--cx)} .chip.c-no{--c:var(--no)}
 .chip[aria-pressed="true"]{border-color:var(--c);color:#fff;background:var(--c)}
 .owe{margin-left:auto;font-size:.8rem;color:var(--muted)}
 .item.flag{border-color:var(--warn);box-shadow:var(--shadow),0 0 0 3px color-mix(in srgb,var(--warn) 18%,transparent)}

@@ -36,6 +36,7 @@ const DEFAULT_CONFIG = { people: ["Osoba 1", "Osoba 2"], options: [
   { id: "shared", label: "Wspólne", share: 50, fixed: true },
   { id: "p0", person: 0, share: 100, fixed: true },
   { id: "p1", person: 1, share: 0, fixed: true },
+  { id: "none", label: "Nie rozliczamy", share: 0, none: true, fixed: true }, // np. ktoś inny nam to odda
 ], updatedAt: 0 };
 let db = load();
 function load() {
@@ -55,12 +56,19 @@ function removeEntries(ids) { const t = Date.now(); for (const id of ids) { dele
 navigator.storage?.persist?.().catch(() => {}); // prośba, żeby przeglądarka nie czyściła danych
 
 /* ---------- logika podziału (share = % należący do osoby 1) ---------- */
-const cfg = () => db.config;
+function withNone(c) { // dane i kopie sprzed opcji „Nie rozliczamy”
+  if (c?.options && !c.options.some((o) => o.id === "none")) {
+    const at = c.options.reduce((n, o, i) => (o.fixed ? i + 1 : n), 0);
+    c.options.splice(at, 0, structuredClone(DEFAULT_CONFIG.options.find((o) => o.id === "none")));
+  }
+  return c;
+}
+const cfg = () => withNone(db.config);
 const P = (i) => cfg().people[i] || (i ? "Osoba 2" : "Osoba 1");
 const optById = (id) => cfg().options.find((o) => o.id === id) || cfg().options[0];
 const optLabel = (o) => (o.person != null ? P(o.person) : o.label);
-const optClass = (o) => (o.person === 0 ? "c-p0" : o.person === 1 ? "c-p1" : o.id === "shared" ? "c-sh" : "c-cx");
-const pct = (o, who) => (who === 0 ? o.share : 100 - o.share);
+const optClass = (o) => (o.person === 0 ? "c-p0" : o.person === 1 ? "c-p1" : o.id === "shared" ? "c-sh" : o.none ? "c-no" : "c-cx");
+const pct = (o, who) => (o.none ? 0 : who === 0 ? o.share : 100 - o.share); // „Nie rozliczamy”: nikt nikomu nie oddaje
 const itemOwed = (it, payer) => Math.round((it.g || 0) * pct(optById(it.opt), 1 - payer) / 100);
 const rOwed = (r) => (r.items || []).reduce((s, it) => s + itemOwed(it, r.payer), 0);
 const rTotal = (r) => (r.items || []).reduce((s, it) => s + (it.g || 0), 0);
@@ -661,7 +669,7 @@ function renderOpts() {
   $("#set-p0-name").textContent = setDraft.people[0] || "Osoba 1";
   const name = (o) => (o.person != null ? (setDraft.people[o.person] || "") : o.label);
   $("#opt-fixed").innerHTML = setDraft.options.filter((o) => o.fixed).map((o) =>
-    `<div class="opt-fixed"><span>${esc(name(o))}</span><span class="muted num">${o.share}% / ${100 - o.share}%</span></div>`).join("");
+    `<div class="opt-fixed"><span>${esc(name(o))}</span><span class="muted num">${o.none ? "0 / 0 (nikt nie oddaje)" : `${o.share}% / ${100 - o.share}%`}</span></div>`).join("");
   $("#opt-custom").innerHTML = setDraft.options.map((o, i) => (o.fixed ? "" :
     `<div class="opt-row" data-i="${i}"><input id="opt-l-${i}" value="${esc(o.label)}" placeholder="np. Dom 60/40" aria-label="Nazwa wyboru">
      <input id="opt-s-${i}" value="${o.share}" inputmode="numeric" aria-label="Procent osoby 1" class="num">
