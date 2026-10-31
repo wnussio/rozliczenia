@@ -276,7 +276,7 @@ function renderEditor() {
         <input class="it-price" id="it-price-${i}" value="${it.g ? fmtIn(it.g) : ""}" inputmode="decimal" placeholder="0,00" aria-label="Cena">
         <button type="button" class="x" data-delitem aria-label="Usuń pozycję">×</button>
       </div>
-      <div class="chips">${chipsHtml(it.opt, "data-opt")}<span class="owe num" id="owe-${i}"></span></div>
+      <div class="chips">${chipsHtml(it.opt, "data-opt")}${isDuplicate(it, i, draft.items) ? `<span class="dup" title="Taka sama nazwa i cena jak inna pozycja">2× – sprawdź</span>` : ""}<span class="owe num" id="owe-${i}"></span></div>
     </div>`).join("");
   renderTotals();
 }
@@ -312,6 +312,15 @@ $("#btn-cancel").onclick = () => { stopScan(); draft = null; goHome(); };
 $("#btn-save").onclick = () => {
   const items = draft.items.filter((it) => it.g).map((it) => ({ name: (it.name || "").trim() || "Pozycja", g: it.g, opt: it.opt }));
   if (!items.length) { $("#ed-check").innerHTML = `<div class="notice bad">Dodaj przynajmniej jedną pozycję z ceną.</div>`; return; }
+  // ten sam paragon zapisany już wcześniej (ta sama data i kwota)?
+  const date = $("#ed-date").value || today(), total = items.reduce((s, it) => s + it.g, 0), store = $("#ed-store").value.trim();
+  const twin = entries().find((e) => e.id !== draft.id && e.date === date && rTotal(e) === total && (!store || !e.store || nameSim(store, e.store) >= 0.5));
+  if (twin && !$("#btn-save").dataset.armed) {
+    $("#ed-check").innerHTML = `<div class="notice warn">Taki paragon chyba już jest zapisany: ${esc(twin.store || "Zakupy")}, ${esc(fmtDate(twin.date))}, ${fmt(rTotal(twin))}. Stuknij „Zapisz mimo to”, jeśli to inny.</div>`;
+    armed($("#btn-save"), "Zapisz mimo to");
+    return;
+  }
+  disarm($("#btn-save"));
   stopScan();
   const settled = $("#ed-settled").checked;
   putEntry({
@@ -327,16 +336,85 @@ $("#btn-del").onclick = () => {
 };
 
 /* ---------- odczyt paragonu w telefonie (Tesseract.js, pliki w vendor/) ---------- */
-function applyParsed(text) {
+/* ---------- łączenie kilku zdjęć / zrzutów jednego paragonu, wykrywanie powtórzeń ---------- */
+const normName = (s) => String(s || "").toLowerCase().replace(/ł/g, "l").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]/g, "");
+function nameSim(a, b) { // podobieństwo nazw 0..1 (wspólne pary liter), odporne na drobne błędy OCR
+  a = normName(a); b = normName(b);
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  const pairs = (s) => { const m = new Map(); for (let i = 0; i < s.length - 1; i++) { const k = s.slice(i, i + 2); m.set(k, (m.get(k) || 0) + 1); } return m; };
+  const A = pairs(a), B = pairs(b); let common = 0;
+  for (const [k, v] of A) common += Math.min(v, B.get(k) || 0);
+  return (2 * common) / Math.max(1, a.length + b.length - 2);
+}
+const basePrice = (it) => it.base ?? it.g;
+// Gdzie nowy zrzut zaczyna powtarzać koniec poprzednich (zrzuty ekranu nachodzą na siebie).
+// Szukamy ciągu pozycji o tych samych cenach; dopuszczamy do 3 zaśmieconych pozycji na końcu poprzedniego
+// zrzutu (np. miniaturka zrzutu w rogu ekranu) i do 2 na początku nowego (wiersz ucięty u góry).
+function findOverlap(prev, next) {
+  let best = null;
+  for (let i = Math.max(0, prev.length - 15); i < prev.length; i++) {
+    for (let j = 0; j < Math.min(3, next.length); j++) {
+      let L = 0;
+      while (i + L < prev.length && j + L < next.length && basePrice(prev[i + L]) === basePrice(next[j + L])) L++;
+      if (!L) continue;
+      const tail = prev.length - (i + L);
+      if (tail > 3) continue;
+      let named = 0;
+      for (let t = 0; t < L; t++) if (nameSim(prev[i + t].name, next[j + t].name) >= 0.5) named++;
+      const ok = L >= 3 || (L === 2 && named >= 1) || (L === 1 && named === 1 && !tail && !j);
+      if (!ok) continue;
+      const score = L * 10 + named * 3 - tail - j;
+      if (!best || score > best.score) best = { i, j, L, tail, score };
+    }
+  }
+  return best;
+}
+// Dołącza pozycje z nowego zdjęcia/zrzutu do już zeskanowanych, bez powtórzeń z części wspólnej.
+function mergeScan(items, parsed, lead) {
+  items = items.slice();
+  const prev = items.filter((it) => it.scan);
+  const ov = findOverlap(prev, parsed);
+  let skipped = 0, fresh = parsed;
+  if (ov) {
+    for (let t = 0; t < ov.L; t++) { // powtórzone pozycje: zostaw jedną, z rabatem jeśli któryś zrzut go pokazał
+      const a = prev[ov.i + t], b = parsed[ov.j + t];
+      a.g = Math.min(a.g, b.g);
+      // u góry nowego zrzutu nazwa jest zwykle czytelniejsza niż na dole poprzedniego (poza pierwszym, uciętym wierszem)
+      if ((ov.j + t > 0 && nameSim(a.name, b.name) < 0.8) || /^Pozycja \(/.test(a.name)) a.name = b.name;
+    }
+    const drop = new Set(prev.slice(ov.i + ov.L)); // zaśmiecony koniec poprzedniego zrzutu – zastąpi go nowy
+    items = items.filter((it) => !drop.has(it));
+    skipped = ov.L + ov.j;
+    fresh = parsed.slice(ov.j + ov.L);
+  } else if (lead && prev.length) {
+    // rabat nad pierwszą pozycją nowego zrzutu dotyczy ostatniej pozycji z poprzedniego
+    const lastPrev = prev[prev.length - 1];
+    if (lastPrev.g === basePrice(lastPrev)) lastPrev.g -= lead;
+  }
+  return { items: items.concat(fresh), skipped, added: fresh.length };
+}
+function isDuplicate(it, i, items) {
+  return it.g > 0 && items.some((o, j) => j !== i && o.g === it.g && nameSim(o.name, it.name) >= 0.8);
+}
+function applyParsed(text, replaceLast = false) {
   const res = parseReceipt(text);
   $("#raw-text").value = text; $("#raw-box").hidden = false;
-  if (!res.items.length) { $("#scan-status").textContent = "Nie rozpoznałem pozycji. Zrób zdjęcie z bliska, płasko, w dobrym świetle (długi paragon: w dwóch częściach) albo popraw odczytany tekst poniżej."; return; }
-  const parsed = res.items.map((x) => ({ name: x.name, g: x.g, opt: draft.defOpt || "shared", scan: true }));
-  draft.items = draft.items.filter((it) => !it.scan && (it.g || it.name)).concat(parsed);
+  if (replaceLast && draft.lastPart) draft.items = draft.items.filter((it) => it.scan !== draft.lastPart);
+  draft.items = draft.items.filter((it) => it.scan || it.g || it.name); // bez pustych wierszy
+  if (!res.items.length) { $("#scan-status").textContent = "Nie rozpoznałem pozycji. Zrób zdjęcie z bliska, płasko, w dobrym świetle albo popraw odczytany tekst poniżej."; renderEditor(); return; }
+  const part = newId();
+  const parsed = res.items.map((x) => ({ name: x.name, g: x.g, base: x.base, opt: draft.defOpt || "shared", scan: part }));
+  const m = mergeScan(draft.items, parsed, res.lead);
+  draft.items = m.items;
+  const k = m.skipped, added = m.added;
+  draft.lastPart = part;
   if (res.store && !$("#ed-store").value.trim()) $("#ed-store").value = res.store;
   if (res.date) $("#ed-date").value = res.date;
-  draft.scannedTotal = res.total;
-  $("#scan-status").textContent = `Rozpoznano ${parsed.length} pozycji. Sprawdź nazwy i ceny, potem przypisz je poniżej.`;
+  if (res.total != null) draft.scannedTotal = res.total;
+  $("#scan-status").textContent = `Dodano ${added} ${added === 1 ? "pozycję" : added < 5 && added > 1 ? "pozycje" : "pozycji"}`
+    + (k ? `, pominięto ${k} powtórzon${k === 1 ? "ą" : "e"} z poprzedniego zrzutu` : "")
+    + (res.total == null ? ". Długi paragon? Zeskanuj dalszą część – powtórzenia pominę." : ".");
   renderEditor();
 }
 function stopScan() {
@@ -352,8 +430,8 @@ async function scan(file) {
     if (token !== scanToken) return;
     const p = m.progress ? ` ${Math.round(m.progress * 100)}%` : "";
     const a = ocrState.attempt;
-    $("#scan-status").textContent = m.status === "recognizing text"
-      ? `Czytam paragon${a && a !== "1/3" ? ` (próba ${a}: szukam odczytu zgodnego z sumą)` : ""}…${p}`
+    $("#scan-status").textContent = a === "orientacja" ? "Sprawdzam, jak obrócone jest zdjęcie…" : m.status === "recognizing text"
+      ? `Czytam paragon${a && a !== "1" ? ` (próba ${a}: szukam odczytu zgodnego z sumą)` : ""}…${p}`
       : `Przygotowuję odczyt (pierwszy raz trwa dłużej)…${p}`;
   });
   try {
@@ -374,7 +452,7 @@ for (const id of ["#scan-file", "#scan-gallery"]) {
   $(id).onchange = (e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) scan(f); };
 }
 $("#btn-paste").onclick = () => { $("#paste-box").hidden = !$("#paste-box").hidden; if (!$("#paste-box").hidden) $("#paste-text").focus(); };
-$("#btn-reparse").onclick = () => { const t = $("#raw-text").value; if (t.trim()) applyParsed(t); };
+$("#btn-reparse").onclick = () => { const t = $("#raw-text").value; if (t.trim()) applyParsed(t, true); };
 $("#btn-paste-go").onclick =() => { const t = $("#paste-text").value; if (t.trim()) { applyParsed(t); $("#paste-box").hidden = true; $("#paste-text").value = ""; } };
 
 /* ---------- ustawienia ---------- */

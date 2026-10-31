@@ -79,44 +79,55 @@ function findReceipt(bmp) {
   r.w = Math.min(r.w, bmp.width - r.x); r.h = Math.min(r.h, bmp.height - r.y);
   return r;
 }
-function findSkew(bmp, r) {
+function findSkew(bmp, r, invert, base = 0) {
   // Kąt, przy którym ciemne piksele najlepiej układają się w poziome wiersze tekstu.
+  // Szukamy ±10° wokół położenia wybranego wcześniej (0°, 90°, 180°, 270°).
   const sw = 500, sh = Math.max(1, Math.round(r.h * sw / r.w));
   const [, ctx] = canvas(sw, sh); ctx.drawImage(bmp, r.x, r.y, r.w, r.h, 0, 0, sw, sh);
   const g = grayOf(ctx, sw, sh);
+  if (invert) for (let i = 0; i < g.length; i++) g[i] = 255 - g[i];
   // ciemne = wyraźnie ciemniejsze od lokalnej średniej (litery), a nie po prostu ciemne tło
-  const I = integral(g, sw, sh), S = Math.max(4, Math.round(sw / 20));
+  const I = integral(g, sw, sh), S = Math.max(4, Math.round(Math.min(sw, sh) / 20));
   const xs = [], ys = [];
   for (let y = 0; y < sh; y++) for (let x = 0; x < sw; x++) {
     const m = localMean(I, sw, sh, x, y, S);
     if (g[y * sw + x] < m * 0.75 && m > 60) { xs.push(x); ys.push(y); }
   }
-  if (xs.length < 200) return 0;
+  if (xs.length < 200) return base;
+  const step = Math.max(1, Math.floor(xs.length / 40000)); // przyspieszenie dla bardzo zapisanych zdjęć
   let best = 0, bestScore = -1;
-  for (let a = -8; a <= 8.001; a += 0.5) {
+  const off = sw + sh + 2;
+  const tryAngle = (a) => {
     const t = (a * Math.PI) / 180, c = Math.cos(t), s = Math.sin(t);
-    const off = sw + 2, bins = new Uint32Array(sh + 2 * off);
-    for (let i = 0; i < xs.length; i++) bins[Math.round(ys[i] * c - xs[i] * s) + off]++;
+    const bins = new Uint32Array(2 * off + 2);
+    for (let i = 0; i < xs.length; i += step) bins[Math.round(ys[i] * c - xs[i] * s) + off]++;
     let score = 0; for (const b of bins) score += b * b;
     if (score > bestScore) { bestScore = score; best = a; }
-  }
+  };
+  for (let a = base - 10; a <= base + 10.001; a += 0.5) tryAngle(a);
   return best;
 }
-export async function prepImage(file) {
-  const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
-  const r = findReceipt(bmp);
-  const angle = findSkew(bmp, r);
-  let scale = Math.min(3, 1800 / r.w);
+function polarity(bmp, r) {
+  // Tryb ciemny (jasny tekst na ciemnym tle, np. zrzut z aplikacji sklepu) → trzeba odwrócić kolory.
+  const sw = 200, sh = Math.max(1, Math.round(r.h * sw / r.w));
+  const [, ctx] = canvas(sw, sh); ctx.drawImage(bmp, r.x, r.y, r.w, r.h, 0, 0, sw, sh);
+  const g = Array.from(grayOf(ctx, sw, sh)).sort((a, b) => a - b);
+  return g[g.length >> 1] < 110;
+}
+function render(bmp, r, angle, invert, maxW = 1800, binOnly = false) {
+  const t = (-angle * Math.PI) / 180;
+  let scale = Math.min(3, maxW / (Math.abs(Math.cos(t)) > 0.5 ? r.w : r.h));
   if (r.w * r.h * scale * scale > 8e6) scale = Math.sqrt(8e6 / (r.w * r.h));
-  const w = r.w * scale, h = r.h * scale, t = (-angle * Math.PI) / 180;
+  const w = r.w * scale, h = r.h * scale;
   const W = Math.round(Math.abs(w * Math.cos(t)) + Math.abs(h * Math.sin(t))), H = Math.round(Math.abs(w * Math.sin(t)) + Math.abs(h * Math.cos(t)));
   const [gc, ctx] = canvas(W, H);
-  ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = invert ? "#000" : "#fff"; ctx.fillRect(0, 0, W, H);
   ctx.translate(W / 2, H / 2); ctx.rotate(t);
   ctx.drawImage(bmp, r.x, r.y, r.w, r.h, -w / 2, -h / 2, w, h);
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   // skala szarości z rozciągnięciem kontrastu
   const img = ctx.getImageData(0, 0, W, H), d = img.data, g = grayOf(ctx, W, H);
+  if (invert) for (let j = 0; j < g.length; j++) g[j] = 255 - g[j];
   const hist = new Uint32Array(256); for (const v of g) hist[v]++;
   let lo = 0, hi = 255, acc = 0;
   while (lo < 255 && (acc += hist[lo]) < g.length * 0.01) lo++;
@@ -128,41 +139,68 @@ export async function prepImage(file) {
   // progowanie Bradleya: porównanie z lokalną średnią – cienie i nierówne światło nie przeszkadzają
   const [bc, bctx] = canvas(W, H);
   const out = bctx.createImageData(W, H), o = out.data;
-  const I = new Uint32Array((W + 1) * (H + 1));
-  for (let y = 0; y < H; y++) { let row = 0; for (let x = 0; x < W; x++) { row += g[y * W + x]; I[(y + 1) * (W + 1) + x + 1] = I[y * (W + 1) + x + 1] + row; } }
+  const I = integral(g, W, H);
   const S = Math.max(8, Math.round(W / 16)) >> 1;
   for (let y = 0; y < H; y++) {
-    const y0 = Math.max(0, y - S), y1 = Math.min(H - 1, y + S);
     for (let x = 0; x < W; x++) {
-      const x0 = Math.max(0, x - S), x1 = Math.min(W - 1, x + S);
-      const cnt = (x1 - x0 + 1) * (y1 - y0 + 1);
-      const sum = I[(y1 + 1) * (W + 1) + x1 + 1] - I[y0 * (W + 1) + x1 + 1] - I[(y1 + 1) * (W + 1) + x0] + I[y0 * (W + 1) + x0];
-      const v = g[y * W + x] * cnt <= sum * 0.85 ? 0 : 255, i = (y * W + x) * 4;
+      const v = g[y * W + x] <= localMean(I, W, H, x, y, S) * 0.85 ? 0 : 255, i = (y * W + x) * 4;
       o[i] = o[i + 1] = o[i + 2] = v; o[i + 3] = 255;
     }
   }
   bctx.putImageData(out, 0, 0);
-  return { bin: bc, gray: gc, angle };
+  return { bin: bc, gray: gc };
+}
+export async function prepImage(file) {
+  const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
+  const r = findReceipt(bmp);
+  return { bmp, r, invert: polarity(bmp, r) };
 }
 
 export function setProgress(fn) { ocrProgress = fn || (() => {}); }
 export function terminate() { if (ocrWorker) { ocrWorker.terminate(); ocrWorker = null; } }
 export const workerReady = () => !!ocrWorker;
-// Do trzech prób odczytu; wygrywa ta, której pozycje sumują się do „SUMA PLN”.
+// Kilka prób odczytu; wygrywa ta, której pozycje sumują się do „SUMA PLN” (a przy remisie – pewniejsza).
+const WORD = /[A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż]{3,}/g;
+// Szybka ocena położenia: ile sensownych słów rozpoznaje się na zmniejszonym obrazie.
+async function orientationScore(w, p, angle) {
+  const img = render(p.bmp, p.r, angle, p.invert, 900).bin;
+  await w.setParameters({ tessedit_pageseg_mode: "6" });
+  const { data } = await w.recognize(img);
+  return ((data.text || "").match(WORD) || []).length * (data.confidence || 0) / 100;
+}
+// Kilka prób odczytu; wygrywa ta, której pozycje sumują się do „SUMA PLN” (a przy remisie – pewniejsza).
 export async function readReceipt(file, isCancelled = () => false) {
-  const imgs = await prepImage(file);
+  const p = await prepImage(file);
   const w = await getWorker();
-  const tries = [{ img: "bin", psm: "6" }, { img: "gray", psm: "6" }, { img: "bin", psm: "4" }];
-  let best = null;
-  for (let k = 0; k < tries.length; k++) {
-    if (isCancelled()) return null;
-    ocrState.attempt = `${k + 1}/${tries.length}`;
-    await w.setParameters({ tessedit_pageseg_mode: tries[k].psm });
-    const { data } = await w.recognize(imgs[tries[k].img]);
-    const sc = scoreParse(parseReceipt(data.text || ""));
-    if (!best || sc < best.sc) best = { sc, text: data.text || "", tries: k + 1 };
-    if (sc === 0) break;
-  }
+  let best = null, n = 0;
+  const check = () => { if (isCancelled()) throw new Error("cancelled"); };
+  try {
+    // 1. położenie zdjęcia: najpierw zwykłe; obrócone sprawdzamy tylko, gdy zwykłe czyta się słabo
+    ocrState.attempt = "orientacja";
+    let base = 0, bestQ = await orientationScore(w, p, 0);
+    if (bestQ < 25) {
+      for (const a of [90, 270, 180]) {
+        check();
+        const q = await orientationScore(w, p, a);
+        if (q > bestQ * 1.3) { bestQ = q; base = a; }
+      }
+    }
+    // 2. dokładne prostowanie wokół wybranego położenia
+    const angle = findSkew(p.bmp, p.r, p.invert, base);
+    const imgs = render(p.bmp, p.r, angle, p.invert);
+    const run = async (img, psm) => {
+      check();
+      ocrState.attempt = String(++n);
+      await w.setParameters({ tessedit_pageseg_mode: psm });
+      const { data } = await w.recognize(img);
+      const res = parseReceipt(data.text || "");
+      const cand = { sc: scoreParse(res), conf: data.confidence || 0, items: res.items.length, text: data.text || "", angle };
+      if (!best || cand.sc < best.sc || (cand.sc === best.sc && cand.conf > best.conf)) best = cand;
+    };
+    await run(imgs.bin, "6");
+    if (best.sc !== 0) await run(imgs.gray, "6");
+    if (best.sc !== 0) await run(imgs.bin, "4");
+  } catch (e) { if (e.message === "cancelled") return null; throw e; }
   ocrState.attempt = "";
-  return { ...best, angle: imgs.angle };
+  return { ...best, tries: n };
 }
