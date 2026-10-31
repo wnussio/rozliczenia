@@ -7,7 +7,8 @@ const VENDOR = "rozliczenia-vendor-tesseract-7.0.0"; // duże pliki OCR – pobi
 const FILES = ["./", "index.html", "style.css", "app.js", "parser.js", "ocr.js", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(FILES)));
+  // cache: "reload" – zawsze świeże pliki z serwera, nie stare kopie z pamięci przeglądarki
+  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(FILES.map((f) => new Request(f, { cache: "reload" })))));
 });
 
 self.addEventListener("activate", (event) => {

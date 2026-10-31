@@ -498,15 +498,37 @@ function merge(inc) {
 }
 
 /* ---------- aktualizacje aplikacji (service worker) ---------- */
+// Wersję podmienia GitHub Actions przy publikacji (ta sama co w sw.js).
+const APP_VERSION = "__VERSION__";
+$("#app-version").textContent = APP_VERSION.startsWith("__") ? "wersja testowa" : APP_VERSION;
+let swReg = null;
+const offerUpdate = (w) => {
+  $("#update-banner").hidden = false;
+  $("#update-btn").onclick = () => w.postMessage("aktualizuj");
+  notice("#update-notice", "Jest nowa wersja. Stuknij „Odśwież” na górze ekranu.");
+};
+function watchInstall(w) {
+  w?.addEventListener("statechange", () => { if (w.state === "installed" && navigator.serviceWorker.controller) offerUpdate(w); });
+}
+async function checkUpdate(manual) {
+  if (!swReg) { if (manual) notice("#update-notice", "Aktualizacje działają tylko w zainstalowanej aplikacji otwartej z internetem.", "warn"); return; }
+  if (manual) notice("#update-notice", "Sprawdzam…");
+  try {
+    await swReg.update();
+    if (swReg.waiting) offerUpdate(swReg.waiting);
+    else if (swReg.installing) { watchInstall(swReg.installing); if (manual) notice("#update-notice", "Pobieram nową wersję…"); }
+    else if (manual) notice("#update-notice", "Masz najnowszą wersję ✓");
+  } catch { if (manual) notice("#update-notice", "Nie udało się sprawdzić. Sprawdź internet i spróbuj ponownie.", "warn"); }
+}
+$("#btn-update").onclick = () => checkUpdate(true);
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js").then((reg) => {
-    const offer = (w) => { $("#update-banner").hidden = false; $("#update-btn").onclick = () => w.postMessage("aktualizuj"); };
-    if (reg.waiting && navigator.serviceWorker.controller) offer(reg.waiting);
-    reg.addEventListener("updatefound", () => {
-      const w = reg.installing;
-      w?.addEventListener("statechange", () => { if (w.state === "installed" && navigator.serviceWorker.controller) offer(w); });
-    });
+  navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then((reg) => {
+    swReg = reg;
+    if (reg.waiting && navigator.serviceWorker.controller) offerUpdate(reg.waiting);
+    reg.addEventListener("updatefound", () => watchInstall(reg.installing));
   }).catch(() => { /* bez trybu offline */ });
+  // Sprawdzaj też przy każdym powrocie do aplikacji (telefony rzadko ją zamykają do końca).
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && navigator.onLine) checkUpdate(false); });
   let reloaded = false;
   navigator.serviceWorker.addEventListener("controllerchange", () => { if (!reloaded) { reloaded = true; location.reload(); } });
 }
