@@ -58,8 +58,47 @@ Uwaga: edycje regexów w JS rób narzędziem do edycji plików albo skryptem .py
 - Uwaga przy testach: zamykając procesy testowe nie szukaj po fragmencie własnej linii poleceń (zabija własną powłokę) –
   `killtag.ps1` w dev-tests pomija bieżący proces i zamyka tylko msedge/python.
 
+## Kilka zdjęć naprawdę działa + aparat w aplikacji (01.11.2026)
+- **Problem („aplikacja świruje”)**: przy kilku zdjęciach jednego paragonu tylko 70/100 zgodnych z SUMA PLN.
+  Przyczyny: (1) zdjęcie samego dołu – parser przerywał listę na SUMA/płatności tylko gdy miał już pozycje, więc
+  „Gotówka 63,99”, „Przelew”, godzina „11:22” wchodziły jako produkty (suma 2×); (2) zniekształcone „RAZEH”, „Sumh pln”,
+  „UJUZAPEATY”, „Sorzedaz”; (3) dalsza słabsza „suma” (płatność z resztą, DO ZAPŁATY z kaucją) nadpisywała SUMA PLN;
+  (4) ucięta linia na dolnym brzegu zdjęcia („00.75” z „75,00”) i nagłówek bez „PARAGON FISKALNY” jako pozycje;
+  (5) ponowny odczyt zdjęcia bez sumy wybierał wersję z większą liczbą pozycji (czyli ze śmieciami).
+- **Poprawki**: `parser.js` – `END` (pewny koniec listy), `started`/`ended`, `totalRank`; `app.js` – `addPart` (wspólne dla
+  zapisu i `scoreTexts`): część za końcem listy nie dodaje pozycji, część z „PARAGON FISKALNY” usuwa wcześniejsze
+  niepokrywające się (≤3) pozycje, słabsza suma nie zastępuje pewniejszej, sklep/data/suma także ze zdjęć bez pozycji;
+  `ocr.js` – ponowny odczyt zostaje tylko gdy lepiej zgadza się z sumą.
+- **Aparat w aplikacji** (`camera.js`, getUserMedia): kilka zdjęć z rzędu, każde od razu do kolejki odczytu (czyta w tle),
+  latarka, 📱 = systemowy aparat. Systemowy aparat (input capture) wyrzucał stronę w tło – telefon potrafił ją zamknąć w trakcie odczytu.
+- **Odrzucone**: rozpoznawanie paczkami po 6 linii (jak RapidOCR) – 99/100, ale wolniej (mediana 1,4 s zamiast 1,1 s).
+- **Wyniki** (headless Edge, 4 wątki, przez prawdziwy interfejs – `bench.html`):
+
+| zestaw | przed | po |
+|---|---|---|
+| 100 paragonów Commons, 1 zdjęcie (`cases_100.json`) | 98/100 | 98/100, mediana 1,1 s |
+| te same pocięte na 3 z zakładką 12%, z galerii (`cases_100x3.json`) | 70/100 | **98/100**, mediana 2,1 s |
+| 3 części dokładane co 2,5 s w trakcie odczytu (`cases_100x3_live.json`) | 67/100 | **98/100** |
+| zdjęcia użytkownika: Lidl 4 zrzuty (też w trakcie), Biedronka 2, Dino 10 (`cases_user.json`) | – | 13/13 |
+| pozostałe 19 Commons + 30 z internetu (`cases_extra.json`) | 47/49 | 47/49 |
+
+  Z 3 zdjęć wychodzą te same ceny pozycji co z jednego w 98/100 (c036 z 3 zdjęć nawet lepiej). Nieudane: c038 (słaby skan),
+  c080 (z 3 części – za mała rozdzielczość wycinka).
+
+## Jak testować (dev-tests, PowerShell)
+```
+pip install opencv-python-headless pillow                     # quickjs nie buduje się na Pythonie 3.14 – testy idą w przeglądarce
+python split3.py samples_100 samples_100x3 js_all.json        # cięcie na 3 części (raz)
+python make_cases.py                                           # listy przypadków
+.\run_bench.ps1 cases_100x3.json wynik.json 8772               # prawdziwy interfejs w headless Edge + raport
+python bench_report.py wynik.json final2_100x3.json            # porównanie: pogorszone / poprawione
+.\run_bench.ps1 -cases cases_extra.json -out old.json -app app_old   # inna wersja aplikacji (np. z git archive)
+python make_y4m.py samples_100/c018.jpg cam_c018.y4m; .\run_cam.ps1  # aparat w aplikacji z udawaną kamerą
+powershell -File awake.ps1                                     # komputer nie usypia w trakcie długich testów
+```
+
 ## Do zrobienia (następne kroki)
-1. **Szybkość**: dalej rozpoznawanie kilku linii naraz (paczki w `rec.run`) i WebGPU – oba wymagają pełnego testu dokładności.
+1. **Szybkość**: WebGPU (paczki linii w WASM okazały się wolniejsze); kadrowanie do paragonu przed detekcją przy zdjęciach 12 Mpx.
 2. **Dotrenowanie modelu** (prośba użytkownika): polskie znaki w nazwach (obecny model rec jest chiński – „Maslo”), odporność na poruszenie/tani aparat. Pomysł: model *latin* PP-OCR albo fine-tuning na syntetycznych liniach paragonów (czcionki termiczne + augmentacje blur/szum/JPEG).
 3. Sprawdzić na prawdziwym telefonie (Android/iPhone): pierwsze pobranie modelu, czas, pamięć.
 4. Pozostałe nieudane z Commons: c036/c038 (bardzo słabe skany Intermarché), c143 (Żabka, zbyt mała rozdzielczość).

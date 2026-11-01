@@ -1,11 +1,15 @@
 // Rozpoznawanie polskiego paragonu fiskalnego z tekstu (z OCR albo wklejonego z aparatu).
-// Zwraca { store, date, total, items: [{ name, g }] }; kwoty w groszach.
+// Zwraca { store, date, total, items: [{ name, g }], started, ended }; kwoty w groszach.
+// started: widać „PARAGON FISKALNY” (początek listy), ended: widać koniec listy (suma, podatek, płatność).
 
 const L = "A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż";
 const LETTERS = new RegExp(`[${L}]`, "g");
 const AMOUNT = /-?\d{1,5}[.,]\d{2}(?![\d%]|\s?(?:[kK][gG]|[mM][lL]|[lL]|[mM]|[gG]|[cC][mM]|[mM][mM])\b)/g;
 // Koniec listy zakupów: podsumowania podatku, sumy, płatności.
-const STOP = /SPRZEDA|^[S59][pP]\.?\s?([O0o][pP]|Z[WH]|[A-Ga-g])\b|\bSPRZED\.|\bSP\.?\s?Z[WH]\b|^\W?[S59][pP]\.?\s?[O0o][pP]\b|\bSP\.\s?(OP|ZW)\b|PODSU[MN]|SUBTOTAL|\bRAZEM\b|SPRZ\.?\s*OPOD|OPODAT|\bP\s?T\s?U\b|^P[IT1l][UJ]\b|\bS?UMA\s*(PLN|PTU|:)|\bSUMA\b|\bRAZEM\b|DO\s*ZAP|\bKWOTA\s+[A-G]\b|ROZLICZ|P[ŁL]ATNO|P[ŁL]ATN\.|GOT[ÓO]W|\bKARTA\b|\bKARTY\b|RESZTA|NIEFISK|\bOG[ÓO][ŁL]EM\b|PODSUMOW/i;
+const STOP = /SPRZEDA|\bS[OP0]RZEDA[ZŻ]|^[S59][pP]\.?\s?([O0o][pP]|Z[WH]|[A-Ga-g])\b|\bSPRZED\.|\bSP\.?\s?Z[WH]\b|^\W?[S59][pP]\.?\s?[O0o][pP]\b|\bSP\.\s?(OP|ZW)\b|PODSU[MN]|SUBTOTAL|\bRAZE[MHN]\b|Z\s?A\s?P\s?[ŁLE]\s?A\s?[TI]\s?Y|SPRZ\.?\s*OPOD|OPODAT|\bP\s?T\s?U\b|^P[IT1l][UJ]\b|\bS?UMA\s*(PLN|PTU|:)|\bS?U\s?M\s?[ĄH4]\s*P\s?L\s?N|\bSUMA\b|\bRAZEM\b|DO\s*ZAP|\bKWOTA\s+[A-G]\b|ROZLICZ|P[ŁL]ATNO|P[ŁL]ATN\.|GOT[ÓO]W|\bKARTA\b|\bKARTY\b|RESZTA|NIEFISK|\bOG[ÓO][ŁL]EM\b|PODSUMOW/i;
+// Pewny koniec listy zakupów (suma, podatek, płatność): po nim nie ma już pozycji – także na zdjęciu samego dołu
+// paragonu, gdzie nad sumą nie widać żadnej pozycji („Gotówka 63,99” to nie produkt).
+const END = /SPRZEDA|\bS[OP0]RZEDA[ZŻ]|\bSPRZED\.|SPRZ\.?\s*OPOD|OPODAT|\bS?U\s?M\s?[AĄH4]\s*(PLN|PTU|:)|\bSUMA\b|DO\s*ZAP|Z\s?A\s?P\s?[ŁLE]\s?A\s?[TI]\s?Y|\bRAZE[MHN]\b|ROZLICZ|P[ŁL]ATNO|GOT[ÓO]W|RESZTA|\bP\s?T\s?U\b/i;
 const DISCOUNT = /RABA[TLI1]\b|RABAT|OPUST|PROMOC|OBNI[ŻZ]K|UPUST|ZNI[ŻZ]K|KUPON|VOUCHER|GRATIS|LIDL\s*PLUS/i;
 const DISCOUNT_SUMMARY = /[ŁLE][ĄA]CZN|ACZNIE|SUMA|RAZEM|W\s*TYM|OSZCZ[ĘE]DZ|ZAOSZCZ/i; // „Opust łącznie”, „Suma rabatów”
 const QTY_G = /(?:^|\s|(?<=[A-Za-z]\.))\d+(?:[.,]\d+)?\s*(?:sz[tl1]\.?|kg|op\.?|l)?\s*[x×*][:.]?\s*-?\d{1,5}[.,]\d{1,2}(?!\d)/gi;
@@ -90,7 +94,13 @@ export function parseReceipt(raw) {
     }
     return null;
   };
-  total = totalOf(/S?U\s?M\s?A\s*:?\s*P\s?L/i) ?? totalOf(/DO\s*ZAP[ŁL]AT/i) ?? totalOf(/\bSUMA\b/i) ?? totalOf(/\bPLN\b/i);
+  // totalRank: jak pewne jest źródło sumy (3 = „SUMA PLN”, 0 = jakaś kwota z „PLN”, np. płatność z resztą) –
+  // przy kilku zdjęciach słabsza suma z dalszej części nie zastępuje pewniejszej z wcześniejszej
+  let totalRank = 0;
+  for (const [re, rank] of [[/S?U\s?M\s?A\s*:?\s*P\s?L/i, 3], [/\bS?U\s?M\s?[ĄH4]\s*:?\s*P\s?L\s?N/i, 3], [/DO\s*ZAP[ŁL]AT/i, 2], [/\bSUMA\b/i, 1], [/\bPLN\b/i, 0]]) {
+    total = totalOf(re);
+    if (total != null) { totalRank = rank; break; }
+  }
   // Niezależne potwierdzenia sumy: „SPRZEDAŻ OPODATKOWANA A/B/C” sumują się do kwoty do zapłaty,
   // a płatność kartą/gotówką ją powtarza. Duża czcionka SUMA PLN często czyta się źle (73,56 → 13,56).
   let vat = 0, vatN = 0, paid = null;
@@ -103,9 +113,9 @@ export function parseReceipt(raw) {
   }
   const others = [vatN ? vat : null, paid].filter((x) => x != null);
   if (others.length && !others.includes(total)) {
-    if (others.length === 2 && others[0] === others[1]) total = others[0];
-    else if (total == null && paid != null) total = paid; // suma ze „Sprzedaży opodatkowanej” – tylko gdy potwierdzą ją pozycje (niżej)
-  }
+    if (others.length === 2 && others[0] === others[1]) { total = others[0]; totalRank = 3; }
+    else if (total == null && paid != null) { total = paid; totalRank = 1; } // suma ze „Sprzedaży opodatkowanej” – tylko gdy potwierdzą ją pozycje (niżej)
+  } else if (total != null && others.includes(total)) totalRank = 3; // potwierdzona drugim źródłem
 
   const start = lines.findIndex((l) => /PARAG[O0]I?N\s*(NIE)?\s*F\s?[I1l]\s?S\s?K/i.test(l));
   const headText = lines.slice(0, Math.max(start, 10)).join(" ");
@@ -117,7 +127,7 @@ export function parseReceipt(raw) {
   // pending: linia bez kwoty – albo nazwa następnej pozycji (Lidl: nazwa nad ceną),
   // albo dokończenie nazwy poprzedniej (aplikacja Biedronki: „Ser ż gouda … 12,59” / „400g”).
   let pending = "", pendingDiscount = false, contTarget = null, skipSummary = false;
-  let lead = 0; // rabaty nad pierwszą pozycją – należą do pozycji z poprzedniego zrzutu ekranu
+  let lead = 0, ended = false; // ended: lista zakupów doszła do końca (suma, podatek, płatność) // rabaty nad pierwszą pozycją – należą do pozycji z poprzedniego zrzutu ekranu
   const discountLast = (v) => { if (items.length) items[items.length - 1].g -= Math.abs(v); else lead += Math.abs(v); };
   const flushCont = () => {
     if (pending && contTarget && letterCount(pending) + /\d/.test(pending) >= 1 && pending.length <= 30) contTarget.name = cleanName(contTarget.name + " " + pending);
@@ -137,7 +147,7 @@ export function parseReceipt(raw) {
     if (isDiscount && DISCOUNT_SUMMARY.test(l)) { flushCont(); pendingDiscount = false; skipSummary = !amounts.length; continue; } // podsumowanie rabatów – już odjęte
     if (skipSummary && amounts.length && letterCount(l) < 3) { skipSummary = false; continue; }
     skipSummary = false;
-    if (STOP.test(l)) { flushCont(); if (items.length) break; continue; }
+    if (STOP.test(l)) { flushCont(); if (items.length || END.test(l)) { ended = true; break; } continue; }
     if (/(^|\D)\d{1,2}[.,]\d{2}\s*%(?!\d)/.test(l)) continue; // stawki VAT („PTU A 23,00 %”), ale nie „%0.00” (zniekształcona kwota)
     if (/\bB\S{1,2}\s*RECEP|RECEPT[Y)]|RYCZA[ŁL]T|REFUND|ODP[ŁL]ATNO|\bPE[ŁL]NOP[ŁL]ATN/i.test(l)) {
       // drugi odczyt kwoty poprzedniego leku – gdy się różni, posłuży do sprawdzenia z sumą
@@ -218,13 +228,13 @@ export function parseReceipt(raw) {
   const itemsSum = items.reduce((a, it) => a + it.g, 0);
   // SUMA PLN potwierdzona drugim źródłem (np. płatnością kartą) – nie podważamy jej
   if (!others.includes(total)) for (const alt of others) { // tylko gdy pozycje prawie dokładnie potwierdzają tę drugą kwotę
-    if (alt !== total && Math.abs(itemsSum - alt) <= Math.min(100, alt * 0.01) && (total == null || Math.abs(itemsSum - alt) < Math.abs(itemsSum - total))) total = alt;
+    if (alt !== total && Math.abs(itemsSum - alt) <= Math.min(100, alt * 0.01) && (total == null || Math.abs(itemsSum - alt) < Math.abs(itemsSum - total))) { total = alt; totalRank = 2; }
   }
   fixWithTotal(items, total);
   for (const it of items) delete it.alt;
   // suma ze „Sprzedaży opodatkowanej” jako podpowiedź – przy kilku zrzutach potwierdzą ją dopiero wszystkie pozycje razem
   const totalHint = total == null && vatN ? vat : null;
-  return { store, date, total, totalHint, lead, items: items.filter((it) => it.g > 0) };
+  return { store, date, total, totalRank, totalHint, lead, started: start >= 0, ended, items: items.filter((it) => it.g > 0) };
 }
 
 // Gdy suma pozycji ≠ SUMA PLN, a w niektórych liniach kwota nie zgadza się z „ilość × cena”,

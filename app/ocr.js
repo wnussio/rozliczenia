@@ -231,7 +231,9 @@ export async function readReceipts(files, { isCancelled = () => false, score, re
           }
           const cand = texts.slice(); cand[i] = rr.get(key);
           const sc = score(cand);
-          if (sc < best) { best = sc; texts[i] = cand[i]; }
+          // bez SUMA PLN „więcej pozycji” nie znaczy „lepiej” (ostrzejszy odczyt dokłada też śmieci) – ponowny odczyt
+          // zostaje tylko, gdy zgadza się z sumą lepiej, albo gdy pierwszy nie dał nic
+          if (sc < best && (sc < 1e6 || best >= 1e9)) { best = sc; texts[i] = cand[i]; }
         }
       }
     }

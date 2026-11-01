@@ -6,6 +6,7 @@ import { checkTypicalPrice } from "./prices.js";
 import { foodEmoji, emojisFor, rain, burst, setAnimations, ambient, watchScroll } from "./fx.js";
 import { mascot, homeLine } from "./mascot.js";
 import { readReceipts, setProgress, terminate, workerReady, ocrState } from "./ocr.js";
+import { cameraSupported, openCamera, closeCamera } from "./camera.js";
 let scanToken = 0;
 
 /* ---------- pomocnicze ---------- */
@@ -419,7 +420,7 @@ function priceHistory() { // nazwa produktu → { min, max, n } z zapisanych par
 $("#ed-check").onclick = (e) => {
   if (e.target.closest("[data-hint-total]")) {
     $("#fix-total-box").innerHTML = `<input id="fix-total" inputmode="decimal" class="num" value="${fmtIn(draft.scannedTotal)}" aria-label="SUMA PLN" style="max-width:130px"> <button type="button" class="btn small" id="fix-total-ok">Zapisz sumę</button>`;
-    $("#fix-total-ok").onclick = () => { draft.scannedTotal = parseMoney($("#fix-total").value) || null; renderEditor(); };
+    $("#fix-total-ok").onclick = () => { draft.scannedTotal = parseMoney($("#fix-total").value) || null; draft.totalRank = 9; renderEditor(); };
     return;
   }
   const b = e.target.closest("[data-hint]"); if (b) applyHint(+b.dataset.hint);
@@ -539,33 +540,63 @@ function mergeScan(items, parsed, lead) {
   }
   return { items: items.concat(fresh), skipped, added: fresh.length };
 }
+// Kolejna część paragonu (zdjęcia idą od góry do dołu); st = { items, ended } – co już zeskanowano.
+// – wcześniejsza część doszła do sumy/podatku → „pozycje” tej to stopka (płatność, godzina, numery), a nie zakupy;
+// – dopiero ta część ma „PARAGON FISKALNY” → wcześniejsze „pozycje” były nagłówkiem sklepu (adres, data).
+function addPart(st, res, parsed) {
+  let items = st.items, header = 0;
+  const footer = st.ended && !res.started && parsed.length;
+  if (footer) parsed = [];
+  if (res.started && !st.ended) {
+    // ta część pokazuje listę od początku: wcześniejsze „pozycje”, które się z nią nie pokrywają, to nagłówek
+    // albo ucięta na brzegu zdjęcia linia („00.75” z „Sukienka 75,00”) – całą linię widać dopiero tutaj
+    const scanned = items.filter((it) => it.scan), head = scanned.filter((it) => !it.top);
+    const drop = head.length && head.length === scanned.length && head.length <= 3 ? head
+      : scanned.length <= 3 && !findOverlap(scanned, parsed) ? scanned : [];
+    if (drop.length) { items = items.filter((it) => !drop.includes(it)); header = drop.length; }
+  }
+  if (res.started) parsed.forEach((it) => { it.top = 1; });
+  const m = mergeScan(items, parsed, res.lead);
+  return { ...m, ended: st.ended || res.ended, footer: !!footer, header };
+}
 function isDuplicate(it, i, items) {
   return it.g > 0 && items.some((o, j) => j !== i && o.g === it.g && nameSim(o.name, it.name) >= 0.8);
 }
 function applyParsed(text, replaceLast = false) {
   const res = parseReceipt(text);
   $("#raw-text").value = text; $("#raw-box").hidden = false;
-  if (replaceLast && draft.lastPart) draft.items = draft.items.filter((it) => it.scan !== draft.lastPart);
+  if (replaceLast && draft.lastPart) {
+    draft.items = draft.items.filter((it) => it.scan !== draft.lastPart);
+    if (draft.endedBy === draft.lastPart) draft.endedBy = null;
+  }
   draft.items = draft.items.filter((it) => it.scan || it.g || it.name); // bez pustych wierszy
   if (replaceLast && draft.totalFrom === draft.lastPart) { draft.scannedTotal = null; draft.totalFrom = null; }
-  if (!res.items.length) { $("#scan-status").textContent = "Nie rozpoznałem pozycji. Zrób zdjęcie z bliska, płasko, w dobrym świetle albo popraw odczytany tekst poniżej."; renderEditor(); return null; }
+  // sklep i datę bierzemy także ze zdjęcia bez pozycji (np. sam nagłówek długiego paragonu)
+  if (res.store && !$("#ed-store").value.trim()) $("#ed-store").value = res.store;
+  if (res.date) $("#ed-date").value = res.date;
   const part = newId();
   const parsed = res.items.map((x) => ({ name: x.name, g: x.g, base: x.base, calc: x.calc, fixed: x.fixed, qty: x.qty, unit: x.unit, opt: draft.defOpt || "shared", scan: part }));
-  const m = mergeScan(draft.items, parsed, res.lead);
+  const m = addPart({ items: draft.items, ended: !!draft.endedBy }, res, parsed);
   draft.items = m.items;
+  if (res.ended && !draft.endedBy) draft.endedBy = part;
   const k = m.skipped, added = m.added;
   draft.lastPart = part;
   if (added) rain(emojisFor(draft.items.slice(-added)), Math.min(30, 8 + added * 2));
-  if (res.store && !$("#ed-store").value.trim()) $("#ed-store").value = res.store;
-  if (res.date) $("#ed-date").value = res.date;
-  if (res.total != null) { draft.scannedTotal = res.total; draft.totalFrom = part; }
+  // suma także z części bez nowych pozycji (sam dół paragonu: SUMA PLN, płatność)
+  if (res.total != null && !(draft.scannedTotal != null && (draft.totalRank ?? 3) > res.totalRank)) { draft.scannedTotal = res.total; draft.totalFrom = part; draft.totalRank = res.totalRank; }
   else if (res.totalHint && draft.scannedTotal == null) { // suma ze „Sprzedaży opodatkowanej” – gdy wszystkie pozycje ją potwierdzają
     const s = rTotal(draft);
-    if (Math.abs(s - res.totalHint) <= Math.min(100, res.totalHint * 0.01)) { draft.scannedTotal = res.totalHint; draft.totalFrom = part; }
+    if (Math.abs(s - res.totalHint) <= Math.min(100, res.totalHint * 0.01)) { draft.scannedTotal = res.totalHint; draft.totalFrom = part; draft.totalRank = 0; }
   }
-  $("#scan-status").textContent = `Dodano ${plItems(added)}`
-    + (k ? `, pominięto ${k} powtórzon${k === 1 ? "ą" : "e"} z poprzedniego zrzutu` : "")
-    + (res.total == null ? ". Długi paragon? Dodaj kolejne zdjęcie dalszej części – powtórzenia pominę." : ".");
+  const scanned = draft.items.some((it) => it.scan);
+  if (!added && !k && !m.header && !(scanned && (m.footer || res.total != null || res.ended))) {
+    $("#scan-status").textContent = "Nie rozpoznałem pozycji. Zrób zdjęcie z bliska, płasko, w dobrym świetle albo popraw odczytany tekst poniżej.";
+    renderEditor(); return null;
+  }
+  const rep = `${k} powtórzon${k === 1 ? "ą" : "e"} z poprzedniego zdjęcia`;
+  $("#scan-status").textContent = (added || !scanned ? `Dodano ${plItems(added)}${k ? ", pominięto " + rep : ""}`
+    : k ? `Nic nowego: pominięto ${rep}` : "Dalsza część paragonu (suma, płatność) – bez nowych pozycji")
+    + (res.total == null && !draft.endedBy ? ". Długi paragon? Dodaj kolejne zdjęcie dalszej części – powtórzenia pominę." : ".");
   renderEditor();
   return { added, skipped: k, total: res.total != null };
 }
@@ -588,11 +619,13 @@ $("#parts").onclick = (e) => {
   draft.items = draft.items.filter((it) => it.scan !== id);
   if (draft.totalFrom === id) { draft.scannedTotal = null; draft.totalFrom = null; }
   if (draft.lastPart === id) draft.lastPart = null;
+  if (draft.endedBy === id || !draft.items.some((it) => it.scan)) draft.endedBy = null;
   if (!draft.items.length) draft.items.push({ name: "", g: 0, opt: draft.defOpt || "shared" });
   $("#scan-status").textContent = "Usunięto pozycje z tej części paragonu.";
   renderEditor();
 };
 function stopScan() {
+  closeCamera();
   scanToken++;
   if (workerReady() && !$("#btn-scan-stop").hidden) terminate();
   scanQueue = null; scanning = false;
@@ -601,13 +634,14 @@ function stopScan() {
 // Jak bardzo połączone pozycje (dotychczasowe + z tych tekstów) rozmijają się z SUMA PLN z któregokolwiek zdjęcia.
 // 0 = zgodne; bez sumy: 1e6 − liczba pozycji (jak scoreParse dla jednego zdjęcia).
 function scoreTexts(texts) {
-  let items = draft.items.filter((it) => it.scan).map((it) => ({ ...it })), total = draft.scannedTotal ?? null;
+  let st = { items: draft.items.filter((it) => it.scan).map((it) => ({ ...it })), ended: !!draft.endedBy }, total = draft.scannedTotal ?? null, rank = draft.totalRank ?? 3;
   for (const t of texts) {
     if (!t.trim()) continue;
     const res = parseReceipt(t);
-    items = mergeScan(items, res.items.map((x) => ({ name: x.name, g: x.g, base: x.base, scan: 1 })), res.lead).items;
-    if (res.total != null) total = res.total;
+    st = addPart(st, res, res.items.map((x) => ({ name: x.name, g: x.g, base: x.base, scan: 1 })));
+    if (res.total != null && !(total != null && rank > res.totalRank)) { total = res.total; rank = res.totalRank; }
   }
+  const items = st.items;
   if (total == null) return items.length ? 1e6 - items.length : 1e9;
   return Math.abs(total - items.reduce((s, it) => s + (it.g || 0), 0));
 }
@@ -655,11 +689,14 @@ async function scan(files) {
     const n = queue.length;
     if (n === 1 && out.errors[0]) { status("Nie udało się odczytać zdjęcia (" + (out.errors[0]?.message || out.errors[0]) + "). Spróbuj ponownie albo wpisz pozycje ręcznie."); return; }
     let added = 0, skipped = 0, total = false;
-    const failed = [];
+    const failed = [], empty = [];
     out.texts.forEach((t, k) => {
       const r = t.trim() ? applyParsed(t) : null;
-      if (r) { added += r.added; skipped += r.skipped; total ||= r.total; } else failed.push(k + 1);
+      if (r) { added += r.added; skipped += r.skipped; total ||= r.total; } else (t.trim() ? empty : failed).push(k + 1);
     });
+    // zdjęcie z tekstem, ale bez pozycji (np. sam nagłówek albo sama stopka) to nie błąd, o ile inne dały pozycje
+    if (!added) failed.push(...empty);
+    failed.sort((a, b) => a - b);
     if (n > 1) {
       status(`Przeczytano ${n - failed.length} z ${n} zdjęć: dodano ${plItems(added)}`
         + (skipped ? `, pominięto ${skipped} powtórzon${skipped === 1 ? "ą" : "e"} z części wspólnych` : "")
@@ -674,7 +711,11 @@ async function scan(files) {
     if (token === scanToken) { scanQueue = null; $("#scan-hint").hidden = true; $("#btn-scan-stop").hidden = true; scanning = false; if (draft) renderTotals(); }
   }
 }
-$("#btn-scan").onclick = () => $("#scan-file").click();
+// Aparat w aplikacji (kilka zdjęć z rzędu, czytane w tle); bez dostępu do kamery – systemowy aparat.
+$("#btn-scan").onclick = async () => {
+  if (!cameraSupported() || !(await openCamera((f) => { if (draft) scan([f]); }))) $("#scan-file").click();
+};
+$("#cam-sys").onclick = () => { closeCamera(); $("#scan-file").click(); };
 $("#btn-gallery").onclick = () => $("#scan-gallery").click();
 $("#btn-scan-stop").onclick = () => { stopScan(); $("#scan-status").textContent = "Przerwano."; };
 for (const id of ["#scan-file", "#scan-gallery"]) {

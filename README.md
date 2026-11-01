@@ -33,9 +33,11 @@ Dane: `localStorage` w telefonie. Odczyt zdjęć w telefonie (nic nie jest wysy�
 | 119 polskich paragonów z Wikimedia Commons | **116/119 (97,5%)** – wcześniej z Tesseract ok. 80% |
 | zdjęcia papierowego paragonu użytkownika (Dino, także bokiem/do góry nogami) | **10/10** |
 | zrzuty z aplikacji Lidl Plus / Moja Biedronka (także złożone z kilku zrzutów) | 100% |
+| 100 paragonów, każdy z 3 zdjęć (z galerii albo robionych w trakcie odczytu), testy 01.11.2026 | **98/100** (wcześniej 70/100) |
 | 40 paragonów × 9 symulacji aparatu (rozmycie, poruszenie, niska rozdzielczość, JPEG, szum, cień, przechylenie, tani telefon) | ok. 87% (JPEG/cień 100%, rozmycie 95%, 50% rozdz. 98%; najsłabiej silne poruszenie) |
 
 Gdy suma się nie zgadza, aplikacja czyta zdjęcie jeszcze raz z wyostrzeniem/powiększeniem i wybiera odczyt zgodny z SUMA PLN.
+Aparat w aplikacji (`app/camera.js`) pozwala zrobić kilka zdjęć długiego paragonu z rzędu – każde jest czytane w tle, zanim zrobisz następne.
 
 ## Jak to jest zbudowane
 

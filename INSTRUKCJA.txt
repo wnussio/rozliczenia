@@ -46,10 +46,18 @@ CODZIENNE UŻYCIE
   - Przy każdej pozycji wybierz: Wspólne / osoba / własny podział.
     „Nie rozliczamy” = pozycja zostaje na paragonie, ale nikt nikomu za nią
     nie oddaje (np. gdy zwróci nam za nią ktoś inny).
-  - Kilka zdjęć / zrzutów jednego paragonu: skanuj po kolei w tym samym
-    paragonie albo w „Galerii” zaznacz od razu kilka zdjęć – zostaną
-    przeczytane po kolei (od najstarszego), a powtórzone pozycje z części
-    wspólnej pominięte. Pod dymkiem widać części paragonu (📄 1, 📄 2…);
+  - „Zdjęcie” otwiera aparat w aplikacji: możesz zrobić kilka zdjęć z rzędu
+    (długi paragon od góry do dołu, każde z kawałkiem poprzedniej części),
+    a telefon czyta je w tle, zanim skończysz. „Gotowe” zamyka aparat.
+    🔦 włącza latarkę (jeśli telefon pozwala), 📱 otwiera zwykły aparat
+    telefonu. Za pierwszym razem telefon zapyta o dostęp do aparatu.
+  - Kilka zdjęć / zrzutów jednego paragonu: rób je w aparacie aplikacji,
+    skanuj po kolei w tym samym paragonie albo w „Galerii” zaznacz od razu
+    kilka zdjęć – zostaną przeczytane po kolei (od najstarszego), a powtórzone
+    pozycje z części wspólnej pominięte. Zdjęcie samej góry (sklep, data)
+    albo samego dołu (suma, płatność) też się przyda: z góry aplikacja weźmie
+    sklep i datę, z dołu SUMA PLN, a linii płatności nie uzna za zakupy.
+    Pod dymkiem widać części paragonu (📄 1, 📄 2…);
     stuknięcie ✕ dwa razy usuwa pozycje ze złego zdjęcia.
 
 Kontrola błędów odczytu (pozycje z problemem mają pomarańczową ramkę)

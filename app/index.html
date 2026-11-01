@@ -107,6 +107,7 @@
         </div>
         <div class="hero"><span id="scan-mascot"></span><div class="bubble" id="scan-status">Paragon czyta telefon, zdjęcie nigdzie nie jest wysyłane. Pozycje możesz też dodać ręcznie.</div></div>
         <p class="small muted" id="scan-hint" hidden>Długi paragon? Już teraz możesz zrobić zdjęcie dalszej części – dołączy do odczytu.</p>
+        <p class="small muted" id="scan-tip">📷 Długi paragon: w aparacie rób zdjęcia po kolei od góry do dołu (z kawałkiem poprzedniej części). Czytam je w tle, a powtórzone pozycje pomijam.</p>
         <button type="button" class="btn" id="btn-scan-stop" hidden>Przerwij</button>
         <div id="parts" class="parts" hidden></div>
         <details id="raw-box" hidden>
@@ -206,6 +207,25 @@
     <button type="button" class="btn primary" id="sel-settle">Rozliczone ✓</button>
   </div>
 </div></div>
+<!-- aparat w aplikacji: kilka zdjęć z rzędu, każde od razu czytane w tle -->
+<div id="cam" class="cam" hidden role="dialog" aria-label="Aparat">
+  <video id="cam-video" playsinline muted autoplay></video>
+  <div class="cam-frame" aria-hidden="true"></div>
+  <div id="cam-flash" class="cam-flash" aria-hidden="true"></div>
+  <div class="cam-top">
+    <span id="cam-count" class="cam-count"></span>
+    <button type="button" class="cam-btn" id="cam-torch" aria-pressed="false" aria-label="Latarka" hidden>🔦</button>
+  </div>
+  <div class="cam-bottom">
+    <p id="cam-tip" class="cam-tip"></p>
+    <div id="cam-thumbs" class="cam-thumbs"></div>
+    <div class="cam-row">
+      <button type="button" class="cam-btn wide" id="cam-sys" aria-label="Aparat telefonu">📱</button>
+      <button type="button" class="cam-shot" id="cam-shot" aria-label="Zrób zdjęcie"></button>
+      <button type="button" class="cam-btn wide" id="cam-done">Zamknij</button>
+    </div>
+  </div>
+</div>
 <datalist id="groups-list"></datalist>
 <script type="module" src="app.js"></script>
 </body>
