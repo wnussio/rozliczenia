@@ -220,6 +220,7 @@ body.cam-open{overflow:hidden}
 .cam-top{display:flex;justify-content:space-between;align-items:center;padding-top:calc(12px + env(safe-area-inset-top, 0px));min-height:44px}
 .cam-count{font-weight:800;background:rgb(0 0 0 / .45);padding:6px 12px;border-radius:999px}
 .cam-count:empty{visibility:hidden}
+.cam-res{font-size:.72rem;opacity:.75;text-shadow:0 1px 2px #000}
 .cam-bottom{margin-top:auto;display:grid;gap:10px;padding-top:14px;padding-bottom:calc(18px + env(safe-area-inset-bottom, 0px));background:linear-gradient(transparent,rgb(0 0 0 / .65) 35%)}
 .cam-tip{margin:0;text-align:center;font-size:.86rem;font-weight:700;text-shadow:0 1px 3px #000}
 .cam-thumbs{display:flex;gap:6px;justify-content:center;min-height:0;overflow-x:auto}

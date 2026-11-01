@@ -2,13 +2,15 @@
 // (onShot), więc telefon czyta pierwszą część paragonu, kiedy robisz zdjęcie następnej.
 // Systemowy aparat (input capture) wyrzuca stronę w tło – telefon potrafi ją wtedy zamknąć w trakcie odczytu.
 const $ = (s) => document.querySelector(s);
-let stream = null, onShot = null, shots = 0;
+let stream = null, onShot = null, shots = 0, capture = null, queue = Promise.resolve();
 
 export const cameraSupported = () => !!navigator.mediaDevices?.getUserMedia;
 
 // true = aparat działa; false = brak dostępu (wtedy używamy systemowego aparatu)
 export async function openCamera(handler) {
   onShot = handler; shots = 0;
+  for (const img of $("#cam-thumbs").querySelectorAll("img")) URL.revokeObjectURL(img.src);
+  $("#cam-thumbs").innerHTML = "";
   try {
     stream = await navigator.mediaDevices.getUserMedia({
       audio: false,
@@ -19,8 +21,16 @@ export async function openCamera(handler) {
   const v = $("#cam-video");
   v.srcObject = stream;
   $("#cam").hidden = false; document.body.classList.add("cam-open");
+  $("#cam-res").textContent = "";
   try { await v.play(); } catch {}
   const track = stream.getVideoTracks()[0];
+  // prawdziwe zdjęcie (ostrzenie, pełna rozdzielczość aparatu) zamiast klatki z podglądu – tam, gdzie telefon pozwala
+  capture = typeof ImageCapture !== "undefined" ? new ImageCapture(track) : null;
+  ready().then(async () => {
+    let res = `${v.videoWidth}×${v.videoHeight}`;
+    try { const pc = await capture?.getPhotoCapabilities(); if (pc?.imageWidth?.max) res = `${pc.imageWidth.max}×${pc.imageHeight.max}`; } catch {}
+    if (stream) $("#cam-res").textContent = res;
+  });
   const caps = track.getCapabilities?.() || {};
   $("#cam-torch").hidden = !caps.torch; $("#cam-torch").setAttribute("aria-pressed", "false");
   // ciągły autofokus, jeśli telefon pozwala wybrać
@@ -29,12 +39,18 @@ export async function openCamera(handler) {
   return true;
 }
 
+// Ekran znika od razu; kamera gaśnie dopiero, gdy zapiszą się zdjęcia zrobione tuż przed „Gotowe”.
 export function closeCamera() {
-  stream?.getTracks().forEach((t) => t.stop()); stream = null;
-  for (const img of $("#cam-thumbs").querySelectorAll("img")) URL.revokeObjectURL(img.src);
-  $("#cam-thumbs").innerHTML = "";
-  $("#cam-video").srcObject = null;
+  if (!stream) return;
   $("#cam").hidden = true; document.body.classList.remove("cam-open");
+  const s = stream;
+  queue.then(() => {
+    s.getTracks().forEach((t) => t.stop());
+    if (stream !== s) return; // w międzyczasie otwarty na nowo
+    stream = null; capture = null; $("#cam-video").srcObject = null;
+    for (const img of $("#cam-thumbs").querySelectorAll("img")) URL.revokeObjectURL(img.src);
+    $("#cam-thumbs").innerHTML = "";
+  });
 }
 
 function render() {
@@ -45,19 +61,45 @@ function render() {
     : "Paragon płasko, w całości na ekranie. Długi? Rób zdjęcia od góry do dołu.";
 }
 
-async function shoot() {
+// podgląd gotowy (pierwsze klatki) – do 4 s; wcześniej stuknięcie w migawkę czeka zamiast przepaść
+function ready() {
   const v = $("#cam-video");
-  if (!stream || !v.videoWidth) return;
-  const c = document.createElement("canvas");
+  if (v.videoWidth) return Promise.resolve(true);
+  return new Promise((r) => {
+    const t = setTimeout(() => r(!!v.videoWidth), 4000);
+    v.addEventListener("loadeddata", () => { clearTimeout(t); r(true); }, { once: true });
+  });
+}
+function frame() { // klatka z podglądu
+  const v = $("#cam-video"), c = document.createElement("canvas");
   c.width = v.videoWidth; c.height = v.videoHeight;
   c.getContext("2d").drawImage(v, 0, 0);
+  return new Promise((r) => c.toBlob(r, "image/jpeg", 0.92));
+}
+async function still() {
+  if (capture) {
+    try {
+      const b = await Promise.race([capture.takePhoto(), new Promise((_, rej) => setTimeout(() => rej(new Error("takePhoto: za długo")), 5000))]);
+      if (b?.size) return b;
+    } catch (e) { console.warn("Zdjęcie z podglądu zamiast pełnego:", e); capture = null; }
+  }
+  return frame();
+}
+// Każde stuknięcie to zdjęcie (po kolei, nawet gdy poprzednie jeszcze się zapisuje); błysk od razu.
+function shoot() {
+  if (!stream) return;
   const flash = $("#cam-flash"); flash.classList.remove("on"); void flash.offsetWidth; flash.classList.add("on");
   navigator.vibrate?.(30);
   shots++; render();
-  const blob = await new Promise((r) => c.toBlob(r, "image/jpeg", 0.92));
-  const thumb = document.createElement("img"); thumb.src = URL.createObjectURL(blob); thumb.alt = `Zdjęcie ${shots}`;
-  $("#cam-thumbs").append(thumb);
-  onShot?.(new File([blob], `aparat-${Date.now()}.jpg`, { type: "image/jpeg", lastModified: Date.now() }));
+  const n = shots;
+  queue = queue.then(async () => {
+    if (!stream || !(await ready())) return;
+    const blob = await still();
+    if (!blob) return;
+    const thumb = document.createElement("img"); thumb.src = URL.createObjectURL(blob); thumb.alt = `Zdjęcie ${n}`;
+    $("#cam-thumbs").append(thumb);
+    onShot?.(new File([blob], `aparat-${Date.now()}.jpg`, { type: "image/jpeg", lastModified: Date.now() }));
+  }).catch((e) => console.warn("Zdjęcie nieudane:", e));
 }
 
 $("#cam-shot").onclick = shoot;

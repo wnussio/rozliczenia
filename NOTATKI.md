@@ -97,6 +97,21 @@ python make_y4m.py samples_100/c018.jpg cam_c018.y4m; .\run_cam.ps1  # aparat w 
 powershell -File awake.ps1                                     # komputer nie usypia w trakcie długich testów
 ```
 
+## Aparat i zamarzanie strony (01.11.2026, wieczór)
+- Zgłoszenie: migawka i „Gotowe” nie zawsze działają; kilka zdjęć – brakuje produktów, nie łapie duplikatów.
+- Pomiar (`test_block.html`): podczas odczytu strona zamarzała prawie cały czas (najdłużej 1–1,9 s na PC, na telefonie kilka razy dłużej).
+  **Wdrożone**: odczyt w osobnym wątku (`paddle-worker.js` + `paddle-core.js`, OffscreenCanvas; bez niego – na stronie jak dawniej);
+  aparat: `takePhoto()` (pełna rozdzielczość, ostrzenie) zamiast klatki z podglądu, kolejka stuknięć, czekanie na gotowy podgląd,
+  „Gotowe” nie gubi zdjęcia zrobionego tuż przed, rozdzielczość w rogu. Testy: zdjęcia użytkownika 13/13, aparat OK.
+- **Niedokończone (jutro)** – `dev-tests/wip_laczenie_zdjec.patch` (app.js, parser.js): zakładka odporna na zgubioną linię i złą cyfrę
+  (Dino z 3–4 symulowanych zdjęć telefonu: 7/20 → 12/20 1:1, duplikaty 14 → 2), sklejone kwoty („x11,99128” → 12,28).
+  NIE wdrożone, bo psuje Lidla z 4 zrzutów (ucięta linia „0,20” z vouchera zostaje jako pozycja → +0,31 zł). Do naprawy i ponownego testu.
+- Sprawdzone i odrzucone: wycinanie paragonu z pełnej rozdzielczości (na symulacji więcej śmieci; symulacja z małego zdjęcia
+  tego nie oceni – potrzebne prawdziwe 12-Mpx zdjęcia); składanie wierszy wzdłuż lokalnego nachylenia (rozbija linie vouchera Lidla).
+- Najważniejsze na jutro: **prawdziwe zdjęcia z telefonu** (paragon w całości + ten sam w 2–3 częściach, z aparatu w aplikacji).
+- Testy na tym etapie: `cases_small.json` (1 zdjęcie, 24), `cases_dino.json` (paragon Dino z 3–4 zdjęć, `make_dino.py`, `dino_report.py`),
+  `cases_user.json`, `test_merge.html` (łączenie tekstów bez OCR), `compare.py`.
+
 ## Do zrobienia (następne kroki)
 1. **Szybkość**: WebGPU (paczki linii w WASM okazały się wolniejsze); kadrowanie do paragonu przed detekcją przy zdjęciach 12 Mpx.
 2. **Dotrenowanie modelu** (prośba użytkownika): polskie znaki w nazwach (obecny model rec jest chiński – „Maslo”), odporność na poruszenie/tani aparat. Pomysł: model *latin* PP-OCR albo fine-tuning na syntetycznych liniach paragonów (czcionki termiczne + augmentacje blur/szum/JPEG).
