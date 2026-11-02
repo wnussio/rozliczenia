@@ -131,7 +131,29 @@ powershell -File awake.ps1                                     # komputer nie us
 - Dino – zostało: ponowny odczyt „upsharp” na mocno przekrzywionym, małym paragonie gubi całą linię w detekcji (ramki sąsiednich
   wierszy idą ukośnie), a wygrywa, bo poprawia inną cenę. Symulacja jest bardzo trudna – potrzebne prawdziwe zdjęcia.
 
+## Prawdziwe paragony użytkownika, aparat na Hammerze/iPhonie, Lidl (02.11.2026, wieczór)
+- **Telefony użytkownika**: iPhone (~11, Safari – brak ImageCapture, zawsze klatka z podglądu, brak sterowania ostrością)
+  i Hammer Construction 2 5G (tani Android: `takePhoto()` ok. 3 s; zdjęcia z galerii tylko ~1300×1735).
+- **Aparat** (`camera.js`): stuknięcia w trakcie robienia zdjęcia są ignorowane (wcześniej po 3 s wychodziła seria 5 zdjęć);
+  `takePhoto({fillLightMode:"off"})` – bez pomiaru pod lampę; gdy i tak > 1,5 s, a podgląd ≥ 1900 px → „szybki tryb”
+  (klatki z podglądu); w rogu czas zdjęcia; stuknięcie w podgląd = ostrość w tym miejscu (`pointsOfInterest`, Android);
+  latarka zapamiętuje stan. **Nie sprawdzone na telefonie – czekam na informację zwrotną (czas w rogu na Hammerze).**
+- **Parser**: „Sp:C=146,97” to podsumowanie VAT (stop), nie produkt; w linii z „PARAGON FISKALNY” liczy się tylko tekst po
+  napisie (pozycja sklejona z nagłówkiem/NIP); Lidl: cena / rabat bez „OPUST” lub minusa / cena po rabacie liczone raz,
+  kwota pod rabatem zastępuje źle odczytaną cenę lub rabat; „OPUSf” = rabat; suma z „Podsuma”, „404.55PLN”;
+  data z godziną to nie płatność.
+- **Łączenie** (`walkOverlap`): ta sama cena, inna nazwa, a 1–2 linie dalej ta sama nazwa i cena → zgubiona linia, nie para.
+- **Wyniki** (`dev-tests/paragony`, `cases_orig.json` = oryginały IMG_* w kolejności 1a..5c, `cases_par.json` = kopie z Messengera):
+  4/5 całych paragonów (apteka 219,36 ✓, Biedronka 146,97 ✓, Lidl 277,28 ✓; Lidl 404,55 ✗ – na zdjęciu 2b OCR nie wykrywa
+  nazw w górnej połowie, same kolumny cen). Small 23/24, user 13/13, aparat OK.
+- **Test parsera i łączenia bez OCR na wszystkim**: `python merge_lab.py _all_texts.json (Get-Content _all_ids.txt) [--app app_head]`
+  (416 zapisanych odczytów, 292 zgodne) – porównać wynik ze starą wersją (app_head = `git archive HEAD app`).
+- `run_cam.ps1` często nie daje `cam.json` (także na starym kodzie); ręczne uruchomienie Edge z `-RedirectStandardError`
+  i profilem `profile-bench-cam2` działało.
+
 ## Do zrobienia (następne kroki)
+0. **Lidl 2b**: detekcja gubi lewą kolumnę (nazwy) – sprawdzić `ocr_dbg.py` na `IMG_20261102_193737_242.jpg`.
+   Informacja od użytkownika o aparacie na obu telefonach.
 1. **Szybkość**: WebGPU (paczki linii w WASM okazały się wolniejsze); kadrowanie do paragonu przed detekcją przy zdjęciach 12 Mpx.
 2. **Dotrenowanie modelu** (prośba użytkownika): polskie znaki w nazwach (obecny model rec jest chiński – „Maslo”), odporność na poruszenie/tani aparat. Pomysł: model *latin* PP-OCR albo fine-tuning na syntetycznych liniach paragonów (czcionki termiczne + augmentacje blur/szum/JPEG).
 3. Sprawdzić na prawdziwym telefonie (Android/iPhone): pierwsze pobranie modelu, czas, pamięć.
