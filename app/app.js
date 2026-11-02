@@ -514,6 +514,14 @@ function walkOverlap(prev, next, i, j) {
   let a = i, b = j, named = 0;
   while (a < prev.length && b < next.length) {
     const s = samePos(prev[a], next[b]);
+    if (s === 1 && pairs.length) {
+      // ta sama cena, inna nazwa (Lidl: kilka pozycji po 4,73), a 1–2 linie dalej ta sama nazwa i cena –
+      // to jeden odczyt zgubił linie, nie ta sama pozycja
+      const k = [1, 2].find((k) => b + k < next.length && samePos(prev[a], next[b + k]) === 2);
+      if (k) { for (let t = 0; t < k; t++) skipN.push(b + t); b += k; continue; }
+      const kp = [1, 2].find((k) => a + k < prev.length && samePos(prev[a + k], next[b]) === 2);
+      if (kp) { for (let t = 0; t < kp; t++) skipP.push(a + t); a += kp; continue; }
+    }
     if (s) { pairs.push([a, b]); named += s === 2; a++; b++; continue; }
     if (!pairs.length) break;
     if (a + 1 < prev.length && samePos(prev[a + 1], next[b])) { skipP.push(a); a++; continue; } // linii nie ma w nowym odczycie

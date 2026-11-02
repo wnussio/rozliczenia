@@ -128,7 +128,8 @@ export function parseReceipt(raw) {
   // albo dokończenie nazwy poprzedniej (aplikacja Biedronki: „Ser ż gouda … 12,59” / „400g”).
   let pending = "", pendingDiscount = false, contTarget = null, skipSummary = false;
   let lead = 0, ended = false; // ended: lista zakupów doszła do końca (suma, podatek, płatność) // rabaty nad pierwszą pozycją – należą do pozycji z poprzedniego zrzutu ekranu
-  const discountLast = (v) => { if (items.length) items[items.length - 1].g -= Math.abs(v); else lead += Math.abs(v); };
+  let justDisc = false; // poprzednia linia odjęła rabat od ostatniej pozycji
+  const discountLast = (v) => { if (items.length) { items[items.length - 1].g -= Math.abs(v); justDisc = true; } else lead += Math.abs(v); };
   const flushCont = () => {
     if (pending && contTarget && letterCount(pending) + /\d/.test(pending) >= 1 && pending.length <= 30) contTarget.name = cleanName(contTarget.name + " " + pending);
     pending = ""; contTarget = null;
@@ -136,9 +137,12 @@ export function parseReceipt(raw) {
 
   // „Schiacciata 80g  PARAGON FISKALNY  3x2,49 7,47C” – OCR skleił nagłówek z pierwszą pozycją
   const PARAGON_RE = /PARAG[O0]I?N\s*(NIE)?\s*F\s?[I1l]\s?S\s?K\S*/i;
-  const first = start >= 0 && lines[start].replace(PARAGON_RE, " ").match(AMOUNT) ? start : start + 1;
+  // przed napisem jest nagłówek (NIP, adres) – zostaje tylko to, co po nim
+  const afterHead = start >= 0 ? lines[start].slice(lines[start].search(PARAGON_RE)).replace(PARAGON_RE, " ").trim() : "";
+  const first = afterHead.match(AMOUNT) ? start : start + 1;
   for (let i = first; i < lines.length; i++) {
-    let l = i === start ? lines[i].replace(PARAGON_RE, " ").replace(/\s{2,}/g, "  ").trim() : lines[i];
+    const afterDisc = justDisc; justDisc = false;
+    let l = i === start ? afterHead : lines[i];
     if (DATE_RE.test(l) && letterCount(l) < 4) continue; // linia z datą i godziną
     if (/\b\d{2}-\d{3}\b|\b(ul|al|os|pl)\.\s?[A-ZĄĆĘŁŃÓŚŹŻ]|\bNIP\b|\bBDO\b|\bREGON\b/i.test(l)) continue; // adres, NIP, kod pocztowy
     if (/\b20\d{2}\b/.test(l) && MONTHS.test(l) && !/\d[.,]\d{2}/.test(l)) continue; // nagłówek aplikacji sklepu: „19 Października 2026”
@@ -162,6 +166,8 @@ export function parseReceipt(raw) {
     }
     if (isDiscount) {
       flushCont();
+      // „OPUST …  38,57A” – kwota po rabacie przesunięta do linii rabatu (rabat już odjęty linię wyżej)
+      if (afterDisc && amounts.length && items.length && toGr(amounts[amounts.length - 1][0]) === items[items.length - 1].g) continue;
       if (amounts.length) discountLast(toGr(amounts[amounts.length - 1][0]));
       else pendingDiscount = true; // kwota rabatu w następnej linii
       continue;
@@ -195,6 +201,11 @@ export function parseReceipt(raw) {
       if (b.name.startsWith("Pozycja") && !b.calc && b.g < a.g && a.g === a.base && a.g - b.g === value) {
         items.pop(); a.g = value; flushCont(); continue;
       }
+    }
+    // Cena po rabacie tuż pod rabatem (Lidl, Biedronka) – gdy cena albo rabat źle odczytane, ta kwota jest pewniejsza
+    if (afterDisc && nameLetters < 3 && q < 0 && amounts.length === 1 && value > 0 && !pending) {
+      const last = items[items.length - 1];
+      if (value <= last.base && value !== last.g) { last.g = value; flushCont(); continue; }
     }
     // Sama kwota równa cenie poprzedniej pozycji po rabacie (aplikacja Biedronki: „12.99C”) – to nie nowa pozycja.
     if (nameLetters < 3 && q < 0 && amounts.length === 1 && items.length && value === items[items.length - 1].g && !(pending && !contTarget)) {
