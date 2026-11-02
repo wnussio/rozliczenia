@@ -494,51 +494,119 @@ function nameSim(a, b) { // podobieństwo nazw 0..1 (wspólne pary liter), odpor
   return (2 * common) / Math.max(1, a.length + b.length - 2);
 }
 const basePrice = (it) => it.base ?? it.g;
-// Gdzie nowy zrzut zaczyna powtarzać koniec poprzednich (zrzuty ekranu nachodzą na siebie).
-// Szukamy ciągu pozycji o tych samych cenach; dopuszczamy do 3 zaśmieconych pozycji na końcu poprzedniego
-// zrzutu (np. miniaturka zrzutu w rogu ekranu) i do 2 na początku nowego (wiersz ucięty u góry).
+// Gdzie nowe zdjęcie/zrzut zaczyna powtarzać koniec poprzednich (zakładka). Ten sam fragment paragonu na dwóch
+// zdjęciach rzadko czyta się identycznie: na jednym OCR zgubi linię, na drugim pomyli cyfrę. Dlatego dopasowanie
+// znosi pojedyncze brakujące linie po każdej stronie i jedną złą cyfrę przy podobnej nazwie (35,61 / 35,62).
+// Dopuszczamy do 3 zaśmieconych pozycji na końcu poprzedniego (miniaturka zrzutu, ucięta linia) i 2 na początku nowego.
+const digitOff = (a, b) => { // kwoty różnią się jedną cyfrą
+  const x = String(a), y = String(b);
+  if (x.length !== y.length) return false;
+  let d = 0; for (let k = 0; k < x.length; k++) d += x[k] !== y[k];
+  return d === 1;
+};
+function samePos(a, b) { // 2 = ta sama kwota i podobna nazwa, 1 = sama kwota albo nazwa + cyfra różnicy, 0 = inne
+  const pa = basePrice(a), pb = basePrice(b), ns = nameSim(a.name, b.name);
+  if (pa === pb) return ns >= 0.5 ? 2 : 1;
+  return ns >= 0.6 && digitOff(pa, pb) ? 1 : 0;
+}
+function walkOverlap(prev, next, i, j) {
+  const pairs = [], skipP = [], skipN = [];
+  let a = i, b = j, named = 0;
+  while (a < prev.length && b < next.length) {
+    const s = samePos(prev[a], next[b]);
+    if (s) { pairs.push([a, b]); named += s === 2; a++; b++; continue; }
+    if (!pairs.length) break;
+    if (a + 1 < prev.length && samePos(prev[a + 1], next[b])) { skipP.push(a); a++; continue; } // linii nie ma w nowym odczycie
+    if (b + 1 < next.length && samePos(prev[a], next[b + 1])) { skipN.push(b); b++; continue; } // linii nie było w poprzednim
+    break;
+  }
+  return { i, j, pairs, skipP, skipN, named, endA: a, endB: b, tail: prev.length - a };
+}
 function findOverlap(prev, next) {
   let best = null;
   for (let i = Math.max(0, prev.length - 15); i < prev.length; i++) {
     for (let j = 0; j < Math.min(3, next.length); j++) {
-      let L = 0;
-      while (i + L < prev.length && j + L < next.length && basePrice(prev[i + L]) === basePrice(next[j + L])) L++;
-      if (!L) continue;
-      const tail = prev.length - (i + L);
-      if (tail > 3) continue;
-      let named = 0;
-      for (let t = 0; t < L; t++) if (nameSim(prev[i + t].name, next[j + t].name) >= 0.5) named++;
-      const ok = L >= 3 || (L === 2 && named >= 1) || (L === 1 && named === 1 && !tail && !j);
+      const w = walkOverlap(prev, next, i, j), L = w.pairs.length, skips = w.skipP.length + w.skipN.length;
+      if (!L || w.tail > 3 || skips > 2 || skips >= L) continue;
+      const ok = (L >= 3 || (L === 2 && w.named >= 1) || (L === 1 && w.named === 1 && !w.tail && !j && !skips));
       if (!ok) continue;
-      const score = L * 10 + named * 3 - tail - j;
-      if (!best || score > best.score) best = { i, j, L, tail, score };
+      w.score = L * 10 + w.named * 3 - w.tail - j - skips * 4;
+      if (!best || w.score > best.score) best = w;
     }
   }
   return best;
+}
+// Nowe zdjęcie w większości powtarza to, co już zeskanowano – w dowolnym miejscu, nie tylko na końcu (to samo
+// zdjęcie dwa razy, całość po częściach, ponowne zdjęcie środka). Najdłuższy wspólny podciąg pozycji, w kolejności.
+// Bez tego wszystko dodawało się drugi raz i suma wychodziła dwa razy większa.
+function findRepeat(prev, next) {
+  const n = prev.length, m = next.length;
+  if (m < 3 || n < 3) return null;
+  const L = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
+  for (let a = n - 1; a >= 0; a--) for (let b = m - 1; b >= 0; b--)
+    L[a][b] = samePos(prev[a], next[b]) ? L[a + 1][b + 1] + 1 : Math.max(L[a + 1][b], L[a][b + 1]);
+  if (L[0][0] < 3 || L[0][0] < 0.6 * m) return null;
+  const pairs = [];
+  for (let a = 0, b = 0; a < n && b < m;) {
+    if (samePos(prev[a], next[b]) && L[a][b] === L[a + 1][b + 1] + 1) { pairs.push([a, b]); a++; b++; }
+    else if (L[a + 1][b] >= L[a][b + 1]) a++; else b++;
+  }
+  const [a0, b0] = pairs[0], [a1, b1] = pairs[pairs.length - 1];
+  const inP = new Set(pairs.map((p) => p[0])), inN = new Set(pairs.map((p) => p[1])), skipP = [], skipN = [];
+  for (let a = a0; a <= a1; a++) if (!inP.has(a)) skipP.push(a);
+  for (let b = b0; b <= b1; b++) if (!inN.has(b)) skipN.push(b);
+  return { i: a0, j: b0, pairs, skipP, skipN, named: 0, endA: a1 + 1, endB: b1 + 1, tail: n - a1 - 1, repeat: true };
 }
 // Dołącza pozycje z nowego zdjęcia/zrzutu do już zeskanowanych, bez powtórzeń z części wspólnej.
 function mergeScan(items, parsed, lead) {
   items = items.slice();
   const prev = items.filter((it) => it.scan);
-  const ov = findOverlap(prev, parsed);
-  let skipped = 0, fresh = parsed;
+  let ov = findOverlap(prev, parsed);
+  const rep = findRepeat(prev, parsed);
+  if (rep && (!ov || rep.pairs.length > ov.pairs.length + 1)) ov = rep;
+  let skipped = 0, fresh = parsed, inserted = 0;
   if (ov) {
-    for (let t = 0; t < ov.L; t++) { // powtórzone pozycje: zostaw jedną, z rabatem jeśli któryś zrzut go pokazał
-      const a = prev[ov.i + t], b = parsed[ov.j + t];
-      a.g = Math.min(a.g, b.g);
-      // u góry nowego zrzutu nazwa jest zwykle czytelniejsza niż na dole poprzedniego (poza pierwszym, uciętym wierszem)
-      if ((ov.j + t > 0 && nameSim(a.name, b.name) < 0.8) || /^Pozycja \(/.test(a.name)) a.name = b.name;
+    for (const [ai, bj] of ov.pairs) { // powtórzone pozycje: zostaw jedną, z rabatem jeśli któryś zrzut go pokazał
+      const a = prev[ai], b = parsed[bj];
+      if (basePrice(a) === basePrice(b) && a.g !== b.g) {
+        // rabat widać tylko na jednym zdjęciu (linia rabatu ucięta na brzegu drugiego) → bierzemy go;
+        // oba zdjęcia pokazują inny rabat → wierzymy nowemu (pozycja jest u niego wyżej, nie na dolnym brzegu),
+        // chyba że to jego pierwszy, ucięty wiersz
+        const aDisc = a.g !== basePrice(a), bDisc = b.g !== basePrice(b);
+        a.g = aDisc && bDisc ? (bj > 0 ? b.g : a.g) : Math.min(a.g, b.g);
+      }
+      // u góry nowego zdjęcia nazwa jest zwykle czytelniejsza niż na dole poprzedniego (poza pierwszym, uciętym wierszem)
+      if ((bj > 0 && nameSim(a.name, b.name) < 0.8) || /^Pozycja \(/.test(a.name)) a.name = b.name;
     }
-    const drop = new Set(prev.slice(ov.i + ov.L)); // zaśmiecony koniec poprzedniego zrzutu – zastąpi go nowy
+    // Linia, którą widać tylko na jednym z dwóch zdjęć: z nazwą – prawdziwa pozycja, którą drugi odczyt zgubił;
+    // bez nazwy – zwykle śmieć z brzegu zdjęcia (np. sama kwota rabatu „0,20” z uciętej linii vouchera Lidla).
+    const nameless = (it) => /^Pozycja \(/.test(it.name);
+    // linie, które w poprzednim odczycie zginęły, a w tym są – wstaw na swoje miejsce
+    // przy powtórce (dużo różnic między odczytami) tylko pewne linie, których kwoty jeszcze nie ma – reszta to zwykle
+    // inaczej odczytana ta sama pozycja
+    const inside = ov.repeat && ov.tail > 3; // powtórka środka: koniec poprzedniego jest prawdziwy, nie zaśmiecony
+    const newLine = (it) => !nameless(it) && (!ov.repeat || (it.sure && !prev.some((p) => basePrice(p) === basePrice(it))));
+    for (const bj of ov.skipN) {
+      if (!newLine(parsed[bj])) continue;
+      const before = ov.pairs.filter(([, b]) => b < bj).pop();
+      const at = before ? items.indexOf(prev[before[0]]) + 1 : items.length;
+      items.splice(at, 0, parsed[bj]); inserted++;
+    }
+    // zaśmiecony koniec poprzedniego zdjęcia – zastąpi go nowe; zostaje tylko pewna pozycja (z nazwą, ilość × cena
+    // zgodne z kwotą), której nowy odczyt nie ma wcale – tę linię OCR zgubił na nowym zdjęciu
+    const keep = (it) => it.sure && !nameless(it) && !parsed.some((p) => basePrice(p) === basePrice(it) || nameSim(p.name, it.name) >= 0.6);
+    const drop = new Set(inside ? [] : prev.slice(ov.endA).filter((it) => !keep(it)));
+    for (const ai of ov.skipP) if (nameless(prev[ai])) drop.add(prev[ai]);
     items = items.filter((it) => !drop.has(it));
-    skipped = ov.L + ov.j;
-    fresh = parsed.slice(ov.j + ov.L);
+    skipped = ov.pairs.length + ov.j;
+    fresh = parsed.slice(ov.endB);
+    if (inside) { skipped += fresh.length; fresh = []; } // za powtórzonym środkiem nowe zdjęcie nie wnosi nic pewnego
   } else if (lead && prev.length) {
     // rabat nad pierwszą pozycją nowego zrzutu dotyczy ostatniej pozycji z poprzedniego
     const lastPrev = prev[prev.length - 1];
     if (lastPrev.g === basePrice(lastPrev)) lastPrev.g -= lead;
   }
-  return { items: items.concat(fresh), skipped, added: fresh.length };
+  return { items: items.concat(fresh), skipped, added: fresh.length + inserted };
 }
 // Kolejna część paragonu (zdjęcia idą od góry do dołu); st = { items, ended } – co już zeskanowano.
 // – wcześniejsza część doszła do sumy/podatku → „pozycje” tej to stopka (płatność, godzina, numery), a nie zakupy;
@@ -575,7 +643,7 @@ function applyParsed(text, replaceLast = false) {
   if (res.store && !$("#ed-store").value.trim()) $("#ed-store").value = res.store;
   if (res.date) $("#ed-date").value = res.date;
   const part = newId();
-  const parsed = res.items.map((x) => ({ name: x.name, g: x.g, base: x.base, calc: x.calc, fixed: x.fixed, qty: x.qty, unit: x.unit, opt: draft.defOpt || "shared", scan: part }));
+  const parsed = res.items.map((x) => ({ name: x.name, g: x.g, base: x.base, calc: x.calc, fixed: x.fixed, qty: x.qty, unit: x.unit, sure: x.sure, opt: draft.defOpt || "shared", scan: part }));
   const m = addPart({ items: draft.items, ended: !!draft.endedBy }, res, parsed);
   draft.items = m.items;
   if (res.ended && !draft.endedBy) draft.endedBy = part;
@@ -638,7 +706,7 @@ function scoreTexts(texts) {
   for (const t of texts) {
     if (!t.trim()) continue;
     const res = parseReceipt(t);
-    st = addPart(st, res, res.items.map((x) => ({ name: x.name, g: x.g, base: x.base, scan: 1 })));
+    st = addPart(st, res, res.items.map((x) => ({ name: x.name, g: x.g, base: x.base, sure: x.sure, scan: 1 })));
     if (res.total != null && !(total != null && rank > res.totalRank)) { total = res.total; rank = res.totalRank; }
   }
   const items = st.items;
@@ -685,6 +753,7 @@ async function scan(files) {
       },
     });
     if (!out || token !== scanToken || !draft) return;
+    window.__scanTexts = out.texts; // podgląd odczytów do testów
     pre = "";
     const n = queue.length;
     if (n === 1 && out.errors[0]) { status("Nie udało się odczytać zdjęcia (" + (out.errors[0]?.message || out.errors[0]) + "). Spróbuj ponownie albo wpisz pozycje ręcznie."); return; }

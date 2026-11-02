@@ -193,9 +193,10 @@ export function parseReceipt(raw) {
 
     // Ilość × cena bez wartości na końcu (OCR zgubił albo ucięta) – policz.
     const qm = q >= 0 ? (l.slice(q).match(/(\d+(?:[.,]\d+)?)\s*(?:sz[tl1]\.?|kg|op\.?|l)?\s*[x×*][:.]?\s*(\d{1,5}[.,]\d{2})(?!\d)/i) || l.slice(q).match(QTY_NOX)) : null;
-    let alt = null, calc = null, fixed = null, qtyVal = null; // ilość × cena – do sprawdzenia krzyżowego z kwotą
+    let alt = null, calc = null, fixed = null, qtyVal = null, sure = false; // ilość × cena – do sprawdzenia krzyżowego z kwotą
     if (qm) {
       qtyVal = parseFloat(qm[1].replace(",", "."));
+      if (/^0\d{2,3}$/.test(qm[1])) qtyVal = parseFloat("0." + qm[1].slice(1)); // waga „0,512” bez przecinka („0512”)
       calc = Math.round(qtyVal * toGr(qm[2]));
       // waga „0,922” odczytana jako „6,922” / „8,922” / „9,922” – sprawdź, czy z zerem zgadza się z kwotą
       if (/^[689][.,]\d{3}$/.test(qm[1]) && value) {
@@ -203,11 +204,14 @@ export function parseReceipt(raw) {
         if (Math.abs(c0 - value) < Math.abs(calc - value)) { qtyVal = q0; calc = c0; }
       }
       const unitIsLast = amounts.length === 1 || amounts[amounts.length - 1].index <= l.indexOf(qm[2], q) + 1;
+      sure = !unitIsLast && value === calc; // kwota odczytana osobno i zgodna z ilością × ceną
       if (unitIsLast || !value) value = calc; // brak lub nieczytelna kwota na końcu (OCR zgubił)
       else if (calc && calc !== value) {
-        const r = value / calc;
+        const r = value / calc, dv = String(value), dc = String(calc);
+        // kwota sklejona z ceną i źle rozdzielona („x11,99128C” → 1,28): to ilość × cena bez jednej cyfry
+        if (dc.length === dv.length + 1 && [...dc].some((_, k) => dc.slice(0, k) + dc.slice(k + 1) === dv)) { fixed = value; value = calc; }
         // przecinek w złym miejscu (×10, ×100, ÷10): ilość × cena jest wiarygodniejsza
-        if ([10, 100, 0.1, 0.01].some((k) => Math.abs(r - k) / k < 0.02)) { fixed = value; value = calc; }
+        else if ([10, 100, 0.1, 0.01].some((k) => Math.abs(r - k) / k < 0.02)) { fixed = value; value = calc; }
         else alt = calc;
       }
     }
@@ -221,6 +225,7 @@ export function parseReceipt(raw) {
     if (alt) item.alt = alt - value;
     if (calc) { item.calc = calc; item.qty = qtyVal; item.unit = toGr(qm[2]); }
     if (fixed) item.fixed = fixed;
+    if (sure) item.sure = 1;
     items.push(item);
     contTarget = nameLetters >= 3 ? item : null;
   }

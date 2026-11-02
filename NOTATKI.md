@@ -112,6 +112,25 @@ powershell -File awake.ps1                                     # komputer nie us
 - Testy na tym etapie: `cases_small.json` (1 zdjęcie, 24), `cases_dino.json` (paragon Dino z 3–4 zdjęć, `make_dino.py`, `dino_report.py`),
   `cases_user.json`, `test_merge.html` (łączenie tekstów bez OCR), `compare.py`.
 
+## Łączenie zdjęć: powtórki, zgubione linie (02.11.2026)
+- Zgłoszenie: „czasem 3 razy czyta zdjęcie i suma jest 2 razy większa”. Przyczyna: zakładkę szukano tylko na końcu poprzednich
+  zdjęć (ostatnie 15 pozycji) → to samo zdjęcie 2×, części + całość, ponowne zdjęcie środka = wszystko dodane drugi raz
+  (3 odczyty to ponowne odczyty przy niezgodnej sumie – skutek, nie przyczyna).
+- **Wdrożone** (`app.js`, `parser.js`):
+  - łatka WIP (zakładka odporna na zgubioną linię / złą cyfrę, „x11,99128” → 12,28) + naprawa Lidla: linia bez nazwy widoczna
+    tylko na jednym zdjęciu (ucięta kwota vouchera „0,20”) to śmieć – nie zostaje i nie jest wstawiana;
+  - `findRepeat`: nowe zdjęcie w ≥60% powtarza już zeskanowane (najdłuższy wspólny podciąg, gdziekolwiek) → tylko uzupełnia
+    pewne zgubione linie, nie dubluje; powtórka środka nie ucina prawdziwego końca;
+  - parser: `sure` = kwota odczytana osobno i równa ilość × cena; taka nazwana pozycja z dołu zdjęcia zostaje, gdy następne
+    zdjęcie jej nie ma (POMIDOR „0512×13,99 7,16”); waga bez przecinka „0512” = 0,512;
+  - ta sama pozycja z różnym rabatem na dwóch zdjęciach → rabat z nowszego (pozycja wyżej na zdjęciu), nie zawsze mniejszy.
+- **Testy**: `merge_lab.py wynik.json [id,..] [--app app_head] [--v]` – łączenie gotowych tekstów bez OCR w sekundę (deterministycznie,
+  do porównań wersji); `ocr_dbg.py zdjecie.jpg [podglad.png] [--v upsharp] [--lines]` – każda ramka OCR z pewnością + podgląd.
+  Powtórki (`w_dups.json`, `w_dups2.json`): 21/22 (wdrożone wcześniej 7/22; jedyny „błąd” to Biedronka bez SUMA na zdjęciach).
+  Dino na tych samych odczytach 6/20 → 10/20. Przez interfejs: 1 zdjęcie 23/24, użytkownika 13/13, 100×3 98/100, 100×3 na żywo 98/100 (bez pogorszeń).
+- Dino – zostało: ponowny odczyt „upsharp” na mocno przekrzywionym, małym paragonie gubi całą linię w detekcji (ramki sąsiednich
+  wierszy idą ukośnie), a wygrywa, bo poprawia inną cenę. Symulacja jest bardzo trudna – potrzebne prawdziwe zdjęcia.
+
 ## Do zrobienia (następne kroki)
 1. **Szybkość**: WebGPU (paczki linii w WASM okazały się wolniejsze); kadrowanie do paragonu przed detekcją przy zdjęciach 12 Mpx.
 2. **Dotrenowanie modelu** (prośba użytkownika): polskie znaki w nazwach (obecny model rec jest chiński – „Maslo”), odporność na poruszenie/tani aparat. Pomysł: model *latin* PP-OCR albo fine-tuning na syntetycznych liniach paragonów (czcionki termiczne + augmentacje blur/szum/JPEG).
