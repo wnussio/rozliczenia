@@ -6,11 +6,11 @@ const L = "A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż";
 const LETTERS = new RegExp(`[${L}]`, "g");
 const AMOUNT = /-?\d{1,5}[.,]\d{2}(?![\d%]|\s?(?:[kK][gG]|[mM][lL]|[lL]|[mM]|[gG]|[cC][mM]|[mM][mM])\b)/g;
 // Koniec listy zakupów: podsumowania podatku, sumy, płatności.
-const STOP = /SPRZEDA|\bS[OP0]RZEDA[ZŻ]|^[S59][pP]\.?\s?([O0o][pP]|Z[WH]|[A-Ga-g])\b|\bSPRZED\.|\bSP\.?\s?Z[WH]\b|^\W?[S59][pP]\.?\s?[O0o][pP]\b|\bSP\.\s?(OP|ZW)\b|PODSU[MN]|SUBTOTAL|\bRAZE[MHN]\b|Z\s?A\s?P\s?[ŁLE]\s?A\s?[TI]\s?Y|SPRZ\.?\s*OPOD|OPODAT|\bP\s?T\s?U\b|^P[IT1l][UJ]\b|\bS?UMA\s*(PLN|PTU|:)|\bS?U\s?M\s?[ĄH4]\s*P\s?L\s?N|\bSUMA\b|\bRAZEM\b|DO\s*ZAP|\bKWOTA\s+[A-G]\b|ROZLICZ|P[ŁL]ATNO|P[ŁL]ATN\.|GOT[ÓO]W|\bKARTA\b|\bKARTY\b|RESZTA|NIEFISK|\bOG[ÓO][ŁL]EM\b|PODSUMOW/i;
+const STOP = /SPRZEDA|\bS[OP0]RZEDA[ZŻ]|^[S59][pP][.:]?\s?([O0o][pP]|Z[WH]|[A-Ga-g])\b|\bSPRZED\.|\bSP\.?\s?Z[WH]\b|^\W?[S59][pP]\.?\s?[O0o][pP]\b|\bSP\.\s?(OP|ZW)\b|PODSU[MN]|SUBTOTAL|\bRAZE[MHN]\b|Z\s?A\s?P\s?[ŁLE]\s?A\s?[TI]\s?Y|SPRZ\.?\s*OPOD|OPODAT|\bP\s?T\s?U\b|^P[IT1l][UJ]\b|\bS?UMA\s*(PLN|PTU|:)|\bS?U\s?M\s?[ĄH4]\s*P\s?L\s?N|\bSUMA\b|\bRAZEM\b|DO\s*ZAP|\bKWOTA\s+[A-G]\b|ROZLICZ|P[ŁL]ATNO|P[ŁL]ATN\.|GOT[ÓO]W|\bKARTA\b|\bKARTY\b|RESZTA|NIEFISK|\bOG[ÓO][ŁL]EM\b|PODSUMOW/i;
 // Pewny koniec listy zakupów (suma, podatek, płatność): po nim nie ma już pozycji – także na zdjęciu samego dołu
 // paragonu, gdzie nad sumą nie widać żadnej pozycji („Gotówka 63,99” to nie produkt).
 const END = /SPRZEDA|\bS[OP0]RZEDA[ZŻ]|\bSPRZED\.|SPRZ\.?\s*OPOD|OPODAT|\bS?U\s?M\s?[AĄH4]\s*(PLN|PTU|:)|\bSUMA\b|DO\s*ZAP|Z\s?A\s?P\s?[ŁLE]\s?A\s?[TI]\s?Y|\bRAZE[MHN]\b|ROZLICZ|P[ŁL]ATNO|GOT[ÓO]W|RESZTA|\bP\s?T\s?U\b/i;
-const DISCOUNT = /RABA[TLI1]\b|RABAT|OPUST|PROMOC|OBNI[ŻZ]K|UPUST|ZNI[ŻZ]K|KUPON|VOUCHER|GRATIS|LIDL\s*PLUS/i;
+const DISCOUNT = /RABA[TLI1]\b|RABAT|OPUST|PROMOC|OBNI[ŻZ]K|UPUST|ZNI[ŻZ]K|KUPON|VOUCHER|GRATIS|LIDL\s*PLUS|^\W{0,2}OP[UV]S[TF1IL]/i;
 const DISCOUNT_SUMMARY = /[ŁLE][ĄA]CZN|ACZNIE|SUMA|RAZEM|W\s*TYM|OSZCZ[ĘE]DZ|ZAOSZCZ/i; // „Opust łącznie”, „Suma rabatów”
 const QTY_G = /(?:^|\s|(?<=[A-Za-z]\.))\d+(?:[.,]\d+)?\s*(?:sz[tl1]\.?|kg|op\.?|l)?\s*[x×*][:.]?\s*-?\d{1,5}[.,]\d{1,2}(?!\d)/gi;
 // pozycja ostatniego „ilość × cena” w linii (pierwsze bywa częścią nazwy, np. „Woda 6x1,5L”)
@@ -97,7 +97,7 @@ export function parseReceipt(raw) {
   // totalRank: jak pewne jest źródło sumy (3 = „SUMA PLN”, 0 = jakaś kwota z „PLN”, np. płatność z resztą) –
   // przy kilku zdjęciach słabsza suma z dalszej części nie zastępuje pewniejszej z wcześniejszej
   let totalRank = 0;
-  for (const [re, rank] of [[/S?U\s?M\s?A\s*:?\s*P\s?L/i, 3], [/\bS?U\s?M\s?[ĄH4]\s*:?\s*P\s?L\s?N/i, 3], [/DO\s*ZAP[ŁL]AT/i, 2], [/\bSUMA\b/i, 1], [/\bPLN\b/i, 0]]) {
+  for (const [re, rank] of [[/S?U\s?M\s?A\s*:?\s*P\s?L/i, 3], [/\bS?U\s?M\s?[ĄH4]\s*:?\s*P\s?L\s?N/i, 3], [/DO\s*ZAP[ŁL]AT/i, 2], [/^P[O0]DSU[MN]A\b/i, 2], [/\bSUMA\b/i, 1], [/(\b|\d)PLN\b/i, 0]]) {
     total = totalOf(re);
     if (total != null) { totalRank = rank; break; }
   }
@@ -109,7 +109,7 @@ export function parseReceipt(raw) {
     if (!a.length) continue;
     const v = toGr(a[a.length - 1][0]);
     if (/SPRZEDA|\bSPRZED\.|SPRZ\.?\s*OPOD|OPODATK|ZWOLNION|\bSP\.\s?(OP|Z[WH])\b/i.test(l) && !/PTU|VAT\s*\d/i.test(l)) { vat += v; vatN++; }
-    else if (paid == null && /\bKARTA\b|KARTY|P[ŁL]ATNO[ŚS][ĆC]|GOT[ÓO]WK|BLIK|DEBIT|VISA|MASTERCARD/i.test(l) && !/RESZTA/i.test(l)) paid = v;
+    else if (paid == null && /\bKARTA\b|KARTY|P[ŁLE]ATNO[ŚS][ĆC]|GOT[ÓO]WK|BLIK|DEBIT|VISA|MASTERCARD/i.test(l) && !/RESZTA/i.test(l) && !/\d-\d{2}-\d{2}\b/.test(l)) paid = v;
   }
   const others = [vatN ? vat : null, paid].filter((x) => x != null);
   if (others.length && !others.includes(total)) {
@@ -134,8 +134,11 @@ export function parseReceipt(raw) {
     pending = ""; contTarget = null;
   };
 
-  for (let i = start + 1; i < lines.length; i++) {
-    let l = lines[i];
+  // „Schiacciata 80g  PARAGON FISKALNY  3x2,49 7,47C” – OCR skleił nagłówek z pierwszą pozycją
+  const PARAGON_RE = /PARAG[O0]I?N\s*(NIE)?\s*F\s?[I1l]\s?S\s?K\S*/i;
+  const first = start >= 0 && lines[start].replace(PARAGON_RE, " ").match(AMOUNT) ? start : start + 1;
+  for (let i = first; i < lines.length; i++) {
+    let l = i === start ? lines[i].replace(PARAGON_RE, " ").replace(/\s{2,}/g, "  ").trim() : lines[i];
     if (DATE_RE.test(l) && letterCount(l) < 4) continue; // linia z datą i godziną
     if (/\b\d{2}-\d{3}\b|\b(ul|al|os|pl)\.\s?[A-ZĄĆĘŁŃÓŚŹŻ]|\bNIP\b|\bBDO\b|\bREGON\b/i.test(l)) continue; // adres, NIP, kod pocztowy
     if (/\b20\d{2}\b/.test(l) && MONTHS.test(l) && !/\d[.,]\d{2}/.test(l)) continue; // nagłówek aplikacji sklepu: „19 Października 2026”
@@ -186,6 +189,13 @@ export function parseReceipt(raw) {
     pendingDiscount = false;
     if (value < 0) { discountLast(value); flushCont(); continue; }
 
+    // Lidl: „cena” / „rabat” (OCR zgubił „OPUST” albo minus) / „cena po rabacie” – cena − rabat = ta kwota
+    if (nameLetters < 3 && q < 0 && amounts.length === 1 && items.length >= 2) {
+      const a = items[items.length - 2], b = items[items.length - 1];
+      if (b.name.startsWith("Pozycja") && !b.calc && b.g < a.g && a.g === a.base && a.g - b.g === value) {
+        items.pop(); a.g = value; flushCont(); continue;
+      }
+    }
     // Sama kwota równa cenie poprzedniej pozycji po rabacie (aplikacja Biedronki: „12.99C”) – to nie nowa pozycja.
     if (nameLetters < 3 && q < 0 && amounts.length === 1 && items.length && value === items[items.length - 1].g && !(pending && !contTarget)) {
       flushCont(); continue;

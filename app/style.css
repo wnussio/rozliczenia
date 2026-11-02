@@ -230,3 +230,7 @@ body.cam-open{overflow:hidden}
 .cam-btn[aria-pressed="true"]{background:#ffd84d;color:#000}
 .cam-shot{width:76px;height:76px;border-radius:50%;border:5px solid #fff;background:linear-gradient(135deg,var(--accent),var(--accent2));box-shadow:0 0 0 3px rgb(0 0 0 / .35);cursor:pointer}
 .cam-shot:active{transform:scale(.92)}
+.cam-shot.busy{opacity:.5;transform:scale(.92)}
+.cam-focus{position:fixed;width:70px;height:70px;margin:-35px 0 0 -35px;border:2px solid #ffd54a;border-radius:50%;opacity:0;pointer-events:none}
+.cam-focus.on{animation:cam-focus 1.2s ease-out}
+@keyframes cam-focus{0%{opacity:1;transform:scale(1.4)}25%{transform:scale(1)}80%{opacity:1}100%{opacity:0}}
