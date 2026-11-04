@@ -4,7 +4,7 @@
 const VERSION = "__VERSION__";
 const CACHE = `rozliczenia-${VERSION}`;
 const VENDOR = "rozliczenia-vendor-ocr-2"; // duże pliki OCR (PaddleOCR, onnxruntime, Tesseract) – pobierane raz
-const FILES = ["./", "index.html", "style.css", "app.js", "parser.js", "ocr.js", "prices.js", "fx.js", "mascot.js", "paddle.js", "paddle-core.js", "paddle-worker.js", "camera.js", "fonts/fonts.css", "fonts/mplus-rounded-400-latin.woff2", "fonts/mplus-rounded-400-latin-ext.woff2", "fonts/mplus-rounded-700-latin.woff2", "fonts/mplus-rounded-700-latin-ext.woff2", "fonts/mplus-rounded-800-latin.woff2", "fonts/mplus-rounded-800-latin-ext.woff2", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
+const FILES = ["./", "index.html", "style.css", "app.js", "parser.js", "ocr.js", "prices.js", "fx.js", "mascot.js", "paddle.js", "paddle-core.js", "paddle-worker.js", "camera.js", "awake.js", "fonts/fonts.css", "fonts/mplus-rounded-400-latin.woff2", "fonts/mplus-rounded-400-latin-ext.woff2", "fonts/mplus-rounded-700-latin.woff2", "fonts/mplus-rounded-700-latin-ext.woff2", "fonts/mplus-rounded-800-latin.woff2", "fonts/mplus-rounded-800-latin-ext.woff2", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", (event) => {
   // cache: "reload" – zawsze świeże pliki z serwera, nie stare kopie z pamięci przeglądarki

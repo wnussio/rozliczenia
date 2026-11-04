@@ -1,6 +1,7 @@
 // Aparat w aplikacji: kilka zdjęć z rzędu bez wychodzenia z ekranu. Każde zdjęcie od razu idzie do odczytu
 // (onShot), więc telefon czyta pierwszą część paragonu, kiedy robisz zdjęcie następnej.
 // Systemowy aparat (input capture) wyrzuca stronę w tło – telefon potrafi ją wtedy zamknąć w trakcie odczytu.
+import { releaseHeld } from "./fx.js";
 const $ = (s) => document.querySelector(s);
 let stream = null, onShot = null, shots = 0, capture = null, queue = Promise.resolve();
 // busy: zdjęcie w trakcie – kolejne stuknięcia nie robią serii zdjęć; fast: telefon robi pełne zdjęcie za wolno → klatki z podglądu
@@ -11,7 +12,6 @@ export const cameraSupported = () => !!navigator.mediaDevices?.getUserMedia;
 // true = aparat działa; false = brak dostępu (wtedy używamy systemowego aparatu)
 export async function openCamera(handler) {
   onShot = handler; shots = 0; busy = false; fast = false; photoCaps = null; torchOn = false;
-  for (const img of $("#cam-thumbs").querySelectorAll("img")) URL.revokeObjectURL(img.src);
   $("#cam-thumbs").innerHTML = "";
   try {
     stream = await navigator.mediaDevices.getUserMedia({
@@ -45,12 +45,12 @@ export async function openCamera(handler) {
 export function closeCamera() {
   if (!stream) return;
   $("#cam").hidden = true; document.body.classList.remove("cam-open");
+  releaseHeld(); // deszcz produktów z odczytu, który skończył się przy otwartym aparacie
   const s = stream;
   queue.then(() => {
     s.getTracks().forEach((t) => t.stop());
     if (stream !== s) return; // w międzyczasie otwarty na nowo
     stream = null; capture = null; $("#cam-video").srcObject = null;
-    for (const img of $("#cam-thumbs").querySelectorAll("img")) URL.revokeObjectURL(img.src);
     $("#cam-thumbs").innerHTML = "";
   });
 }
@@ -72,11 +72,23 @@ function ready() {
     v.addEventListener("loadeddata", () => { clearTimeout(t); r(true); }, { once: true });
   });
 }
-function frame() { // klatka z podglądu
+// Klatka z podglądu: zapamiętana od razu (szybkie kopiowanie), zapis do JPEG później – w tle.
+function grab() {
   const v = $("#cam-video"), c = document.createElement("canvas");
   c.width = v.videoWidth; c.height = v.videoHeight;
   c.getContext("2d").drawImage(v, 0, 0);
-  return new Promise((r) => c.toBlob(r, "image/jpeg", 0.92));
+  return c;
+}
+const encode = (c) => new Promise((r) => c.toBlob((b) => { c.width = c.height = 0; r(b); }, "image/jpeg", 0.92)); // c.width = 0 zwalnia pamięć (iPhone)
+const frame = () => encode(grab());
+// Mała miniatura z podglądu w chwili stuknięcia – widać od razu, że zdjęcie jest, zanim zapisze się pełne.
+function mini() {
+  const v = $("#cam-video");
+  if (!v.videoWidth) return null;
+  const c = document.createElement("canvas"), h = 108;
+  c.height = h; c.width = Math.max(1, Math.round((h * v.videoWidth) / v.videoHeight));
+  c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
+  return c;
 }
 const take = (opts) => Promise.race([capture.takePhoto(opts), new Promise((_, rej) => setTimeout(() => rej(new Error("takePhoto: za długo")), 5000))]);
 async function still() {
@@ -96,22 +108,31 @@ async function still() {
   }
   return frame();
 }
-// Każde stuknięcie to zdjęcie (po kolei, nawet gdy poprzednie jeszcze się zapisuje); błysk od razu.
+// Każde stuknięcie to zdjęcie (po kolei, nawet gdy poprzednie jeszcze się zapisuje); błysk i miniatura od razu.
+// Klatka z podglądu (iPhone, szybki tryb) jest kopiowana w chwili stuknięcia – migawka od razu gotowa na kolejne zdjęcie;
+// wcześniej czekała na zapis JPEG, który przy trwającym odczycie poprzedniego zdjęcia potrafił trwać kilka sekund.
 function shoot() {
-  if (!stream || busy) return; // zdjęcie jeszcze się robi – nie rób serii
-  busy = true; $("#cam-shot").classList.add("busy");
+  if (!stream || busy) return; // pełne zdjęcie jeszcze się robi – nie rób serii
+  const v = $("#cam-video");
   const flash = $("#cam-flash"); flash.classList.remove("on"); void flash.offsetWidth; flash.classList.add("on");
   navigator.vibrate?.(30);
   shots++; render();
-  const n = shots;
+  const n = shots, thumb = mini();
+  if (thumb) { thumb.className = "pending"; thumb.setAttribute("role", "img"); thumb.setAttribute("aria-label", `Zdjęcie ${n}`); $("#cam-thumbs").append(thumb); }
+  const grabbed = (!capture || fast) && v.videoWidth ? grab() : null;
+  const done = () => { busy = false; $("#cam-shot").classList.remove("busy"); };
+  if (!grabbed) { busy = true; $("#cam-shot").classList.add("busy"); }
   queue = queue.then(async () => {
-    if (!stream || !(await ready())) return;
-    const blob = await still().finally(() => { busy = false; $("#cam-shot").classList.remove("busy"); });
-    if (!blob) return;
-    const thumb = document.createElement("img"); thumb.src = URL.createObjectURL(blob); thumb.alt = `Zdjęcie ${n}`;
-    $("#cam-thumbs").append(thumb);
+    let blob;
+    if (grabbed) blob = await encode(grabbed);
+    else {
+      if (!stream || !(await ready())) { thumb?.remove(); return; }
+      blob = await still().finally(done);
+    }
+    if (!blob) { thumb?.remove(); return; }
+    thumb?.classList.remove("pending");
     onShot?.(new File([blob], `aparat-${Date.now()}.jpg`, { type: "image/jpeg", lastModified: Date.now() }));
-  }).catch((e) => console.warn("Zdjęcie nieudane:", e)).finally(() => { busy = false; $("#cam-shot").classList.remove("busy"); });
+  }).catch((e) => { thumb?.remove(); console.warn("Zdjęcie nieudane:", e); }).finally(() => { if (!grabbed) done(); });
 }
 
 // Stuknięcie w podgląd = wyostrz w tym miejscu (gdzie telefon pozwala), potem z powrotem ciągły autofokus.

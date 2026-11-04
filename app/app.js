@@ -7,6 +7,7 @@ import { foodEmoji, emojisFor, rain, burst, setAnimations, ambient, watchScroll 
 import { mascot, homeLine } from "./mascot.js";
 import { readReceipts, setProgress, terminate, workerReady, ocrState } from "./ocr.js";
 import { cameraSupported, openCamera, closeCamera } from "./camera.js";
+import { initAwake, keepAwake } from "./awake.js";
 let scanToken = 0;
 
 /* ---------- pomocnicze ---------- */
@@ -741,6 +742,7 @@ async function scan(files) {
   scanning = true; setScanMood("wow");
   setProgress((m) => {
     if (token !== scanToken) return;
+    keepAwake(); // odczyt trwa – ekran nie gaśnie (po zablokowaniu telefon wstrzymałby odczyt)
     const p = m.progress ? ` ${Math.round(m.progress * 100)}%` : "";
     if (m.paddle) { status(m.status); return; }
     const a = ocrState.attempt;
@@ -946,7 +948,8 @@ async function checkUpdate(manual) {
   } catch { if (manual) notice("#update-notice", "Nie udało się sprawdzić. Sprawdź internet i spróbuj ponownie.", "warn"); }
 }
 $("#btn-update").onclick = () => checkUpdate(true);
-setAnimations(LS.get("anim") !== "off");
+setAnimations(LS.get("anim") !== "off", LS.get("anim") === "on");
+initAwake();
 ambient();
 setTimeout(() => {
   const c = navigator.connection;
@@ -955,7 +958,7 @@ setTimeout(() => {
     fetch(f).catch(() => {});
 }, 6000);
 $("#set-anim").checked = LS.get("anim") !== "off";
-$("#set-anim").onchange = (e) => { LS.set("anim", e.target.checked ? "on" : "off"); setAnimations(e.target.checked); if (e.target.checked) rain(["🥟", "🍅", "🧀", "🥖"], 12); };
+$("#set-anim").onchange = (e) => { LS.set("anim", e.target.checked ? "on" : "off"); setAnimations(e.target.checked, true); if (e.target.checked) rain(["🥟", "🍅", "🧀", "🥖"], 12); };
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then((reg) => {
     swReg = reg;

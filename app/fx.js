@@ -51,8 +51,13 @@ export function foodEmoji(name) {
 }
 
 /* ---------- efekty ---------- */
-let enabled = true;
-export function setAnimations(on) { enabled = !!on; document.documentElement.classList.toggle("no-anim", !enabled); }
+let enabled = true, forced = false;
+// force: użytkownik sam włączył animacje w ustawieniach – wtedy także przy systemowym „Ogranicz ruch” (iPhone)
+export function setAnimations(on, force = false) {
+  enabled = !!on; forced = enabled && force;
+  document.documentElement.classList.toggle("no-anim", !enabled);
+  document.documentElement.classList.toggle("force-anim", forced);
+}
 
 // Tło: płatki sakury (spokojnie opadają) i gwiazdy widoczne w trybie ciemnym.
 export function ambient() {
@@ -105,7 +110,7 @@ export function watchScroll(root, selector) {
   return io;
 }
 const reduced = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-const allowed = () => enabled && !reduced() && document.visibilityState === "visible";
+const allowed = () => enabled && (forced || !reduced()) && document.visibilityState === "visible";
 
 function layer() {
   let l = document.getElementById("fx-layer");
@@ -114,42 +119,57 @@ function layer() {
 }
 const rnd = (a, b) => a + Math.random() * (b - a);
 
+// Animacja przez Web Animations API, nie @keyframes ze zmiennymi CSS (var() w klatkach kluczowych Safari na iPhonie
+// potrafił zignorować – emoji stały niewidoczne nad ekranem).
+function play(el, frames, opts) {
+  layer().append(el);
+  if (el.animate) { const a = el.animate(frames, { fill: "forwards", ...opts }); a.onfinish = a.oncancel = () => el.remove(); }
+  else setTimeout(() => el.remove(), 10);
+}
+// Gdy otwarty jest aparat (zasłania cały ekran), deszcz czeka, aż go zamkniesz – inaczej leci pod spodem i nikt go nie widzi.
+let held = null;
+const camOpen = () => document.body.classList.contains("cam-open");
+export function releaseHeld() {
+  if (!held || camOpen()) return;
+  const h = held; held = null;
+  setTimeout(() => rain(h.emojis, h.count), 250);
+}
 // Spadające emoji, np. 🥟🥟🍅🧀 po zeskanowaniu paragonu.
 export function rain(emojis, count = 18) {
   if (!allowed() || !emojis.length) return;
-  const l = layer();
+  if (camOpen()) { held = held ? { emojis: [...held.emojis, ...emojis], count: Math.min(32, held.count + count) } : { emojis, count }; return; }
+  const h = innerHeight + 120;
   for (let i = 0; i < count; i++) {
     const s = document.createElement("span");
     s.className = "fx-fall";
     s.textContent = emojis[i % emojis.length];
     s.style.left = rnd(2, 92) + "vw";
     s.style.fontSize = rnd(26, 46) + "px";
-    s.style.setProperty("--rot", rnd(-220, 220) + "deg");
-    s.style.setProperty("--sway", rnd(-40, 40) + "px");
-    s.style.animationDuration = rnd(1.8, 3.2) + "s";
-    s.style.animationDelay = rnd(0, 0.9) + "s";
-    s.addEventListener("animationend", () => s.remove());
-    l.append(s);
+    const rot = rnd(-220, 220), sway = rnd(-40, 40);
+    play(s, [
+      { transform: "translate(0,0) rotate(0deg)", opacity: 0 },
+      { opacity: 1, offset: 0.08 },
+      { opacity: 1, offset: 0.85 },
+      { transform: `translate(${sway}px,${h}px) rotate(${rot}deg)`, opacity: 0 },
+    ], { duration: rnd(1800, 3200), delay: rnd(0, 900), easing: "cubic-bezier(.35,.05,.6,1)" });
   }
 }
 
 // Wybuch konfetti z danego miejsca ekranu (np. przy „Zgadza się z SUMA PLN”).
 export function burst(x = innerWidth / 2, y = innerHeight / 2, pieces = ["✨", "🎉", "⭐", "✅"], count = 22) {
-  if (!allowed()) return;
-  const l = layer();
+  if (!allowed() || camOpen()) return;
   for (let i = 0; i < count; i++) {
     const s = document.createElement("span");
     s.className = "fx-burst";
     s.textContent = pieces[i % pieces.length];
-    const ang = rnd(0, Math.PI * 2), dist = rnd(70, 190);
+    const ang = rnd(0, Math.PI * 2), dist = rnd(70, 190), dx = Math.cos(ang) * dist, dy = Math.sin(ang) * dist - 40;
     s.style.left = x + "px"; s.style.top = y + "px";
     s.style.fontSize = rnd(16, 28) + "px";
-    s.style.setProperty("--dx", Math.cos(ang) * dist + "px");
-    s.style.setProperty("--dy", Math.sin(ang) * dist - 40 + "px");
-    s.style.setProperty("--rot", rnd(-180, 180) + "deg");
-    s.style.animationDelay = rnd(0, 0.12) + "s";
-    s.addEventListener("animationend", () => s.remove());
-    l.append(s);
+    play(s, [
+      { transform: "translate(-50%,-50%) scale(.3)", opacity: 1 },
+      { opacity: 1, offset: 0.7 },
+      { transform: `translate(calc(-50% + ${dx}px),calc(-50% + ${dy}px)) rotate(${rnd(-180, 180)}deg) scale(1.1)`, opacity: 0 },
+    ], { duration: 950, delay: rnd(0, 120), easing: "cubic-bezier(.15,.7,.3,1)" });
   }
 }
 
